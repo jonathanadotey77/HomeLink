@@ -77,9 +77,9 @@ void Buffer::init(size_t len)
 std::string Buffer::toString() const
 {
     std::string out;
-    char* buffer = new char[this->len * 4];
+    char *buffer = new char[this->len * 4];
     getByteStr(buffer, this->buffer, this->len);
-
+    out = std::string(buffer);
     delete[] buffer;
 
     return out;

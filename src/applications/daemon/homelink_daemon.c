@@ -1,4 +1,5 @@
 #include <homelink_misc.h>
+#include <homelink_packet.h>
 #include <homelink_security.h>
 
 #include <arpa/inet.h>
@@ -7,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 char hostId[1024];
 const char *serviceId = "DAEMON";
@@ -106,10 +108,14 @@ bool readConfig()
 
 bool init()
 {
+    if(!initializeSecurity()) {
+        return false;
+    }
     controlSocket = socket(AF_INET6, SOCK_DGRAM, 0);
     if (controlSocket < 0)
     {
         fprintf(stderr, "socket() failed\n");
+        cleanSecurity();
         return false;
     }
 
@@ -118,6 +124,7 @@ bool init()
     {
         fprintf(stderr, "socket() failed\n");
         close(controlSocket);
+        cleanSecurity();
         return false;
     }
 
@@ -128,6 +135,13 @@ void shutdownDaemon()
 {
     close(controlSocket);
     close(dataSocket);
+    cleanSecurity();
+}
+
+void handleCommand(const char* command, size_t commandLen) {
+    CommandPacket commandPacket;
+    memset(&commandPacket, 0, sizeof(commandPacket));
+    commandPacket.packetType = e_Command;
 }
 
 int main()
@@ -140,6 +154,24 @@ int main()
     if (!init())
     {
         return 1;
+    }
+
+    char input[1024];
+    size_t inputLen = 0;
+    while(true) {
+        memset(input, 0, sizeof(input));
+        inputLen = 0;
+
+        for(char ch = fgetc(stdin); ch != '\n' && inputLen < 1023; ch = fgetc(stdin)) {
+            input[inputLen++] = ch;
+        }
+
+        handleCommand(input, inputLen);
+
+        if(inputLen == 4 && strncmp(input, "quit", 4) == 0) {
+            break;
+        }
+
     }
 
     shutdownDaemon();
