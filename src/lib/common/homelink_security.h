@@ -25,6 +25,12 @@ extern "C"
 
     void randomBytes(uint8_t *buffer, int n);
 
+    void generateAESKey(uint8_t* buffer, uint16_t keySize);
+
+    bool aesEncrypt(uint8_t* out, int* outLen, const uint8_t* in, int inLen, const uint8_t* key, const uint8_t* iv, uint8_t* tag);
+
+    bool aesDecrypt(uint8_t* out, int* outLen, const uint8_t* in, int inLen, const uint8_t* key, const uint8_t* iv, uint8_t* tag);
+
     bool rsaEncrypt(uint8_t* out, size_t* outLen,  const uint8_t* in, size_t inLen, const char* rsaPemKey);
 
     bool rsaDecrypt(uint8_t* out, size_t* outLen,  const uint8_t* in, size_t inLen);

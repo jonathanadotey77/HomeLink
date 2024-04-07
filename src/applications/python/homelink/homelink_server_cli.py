@@ -32,8 +32,8 @@ def init():
     return True
 
 def handleCommand(command):
-    commandPacket = CommandPacket(getRSAPublicKey(), rsaEncrypt(command.encode("utf-8"), serverRSAKey))
-    data = CommandPacket.serialize(commandPacket)
+    cliPacket = CLIPacket(getRSAPublicKey(), rsaEncrypt(command.encode("utf-8"), serverRSAKey))
+    data = CLIPacket.serialize(cliPacket)
     mySocket.sendto(data, serverAddress)
 
 def main():

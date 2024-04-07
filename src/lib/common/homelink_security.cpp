@@ -1,9 +1,9 @@
-#include <homelink_packet.h>
 #include <homelink_security.h>
 
+#include <homelink_packet.h>
 #include <homelink_misc.h>
 
-#include <cerrno>
+#include <errno.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
@@ -16,7 +16,7 @@
 static const size_t RSA_KEY_SIZE = 2048U;
 
 static bool randInitialized = false;
-EVP_PKEY* keypair = NULL;
+static EVP_PKEY* keypair = NULL;
 
 static void loadRSAPublicKey(EVP_PKEY** key, char* pemKey, size_t len) {
     BIO* bio = BIO_new_mem_buf(pemKey, len);
@@ -28,6 +28,7 @@ static void loadRSAPublicKey(EVP_PKEY** key, char* pemKey, size_t len) {
 bool initializeSecurity()
 {
     OpenSSL_add_all_algorithms();
+    OpenSSL_add_all_ciphers();
     ERR_load_crypto_strings();
     EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);
     if(ctx == NULL) {
@@ -106,6 +107,114 @@ void randomBytes(uint8_t *buffer, int n)
         randInitialized = true;
     }
     RAND_bytes(buffer, n);
+}
+
+void generateAESKey(uint8_t* buffer, uint16_t keySize) {
+    randomBytes(buffer, static_cast<int>(keySize / 8));
+}
+
+bool aesEncrypt(uint8_t* out, int* outLen, const uint8_t* in, int inLen, const uint8_t* key, const uint8_t* iv, uint8_t* tag) {
+    int rc = 0;
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if(ctx == NULL) {
+        fprintf(stderr, "Could not create ctx in aesEncrypt()\n");
+        return false;
+    }
+
+
+    rc = EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
+    if(rc <= 0) {
+        fprintf(stderr, "Could not set cipher in aesEncrypt()\n");
+        return false;
+    }
+
+    rc = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 16, NULL);
+    if(rc <= 0) {
+        fprintf(stderr, "Could not set IV length in aesEncrypt()\n");
+        return false;
+    }
+
+    rc = EVP_EncryptInit_ex(ctx, NULL, NULL, key, iv);
+    if(rc <= 0) {
+        fprintf(stderr, "Could not set key and IV in aesEncrypt()\n");
+        return false;
+    }
+
+    rc = EVP_EncryptUpdate(ctx, out, outLen, in, inLen);
+    if(rc <= 0) {
+        fprintf(stderr, "EncryptUpdate failed in aesEncrypt()\n");
+        return false;
+    }
+
+    uint8_t* temp = new uint8_t[*outLen];
+    int tempLen = *outLen;
+
+    rc = EVP_EncryptFinal(ctx, temp, &tempLen);
+    delete[] temp;
+    if(rc <= 0) {
+        fprintf(stderr, "EncryptFinal failed in aesEncrypt()\n");
+        return false;
+    }
+
+    rc = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag);
+    if(rc <= 0) {
+        fprintf(stderr, "Could not  in aesEncrypt()\n");
+        return false;
+    }
+
+    EVP_CIPHER_CTX_free(ctx);
+    return true;
+}
+
+bool aesDecrypt(uint8_t* out, int* outLen, const uint8_t* in, int inLen, const uint8_t* key, const uint8_t* iv, uint8_t* tag) {
+    int rc = 0;
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if(ctx == NULL) {
+        fprintf(stderr, "Could not create ctx in aesDecrypt()\n");
+        return false;
+    }
+
+
+    rc = EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
+    if(rc <= 0) {
+        fprintf(stderr, "Could not set cipher in aesDecrypt()\n");
+        return false;
+    }
+
+    rc = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 16, NULL);
+    if(rc <= 0) {
+        fprintf(stderr, "Could not set IV length in aesDecrypt()\n");
+        return false;
+    }
+
+    rc = EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv);
+    if(rc <= 0) {
+        fprintf(stderr, "Could not set key and IV in aesDecrypt()\n");
+        return false;
+    }
+
+    rc = EVP_DecryptUpdate(ctx, out, outLen, in, inLen);
+    if(rc <= 0) {
+        fprintf(stderr, "DecryptUpdate failed in aesDecrypt()\n");
+        return false;
+    }
+
+    rc = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, tag);
+    if(rc <= 0) {
+        fprintf(stderr, "Could not set tag in aesDecrypt()\n");
+        return false;
+    }
+
+    rc = EVP_DecryptFinal(ctx, out, outLen);
+    if(rc <= 0) {
+        fprintf(stderr, "DecryptFinal failed in aesDecrypt()\n");
+        return false;
+    }
+
+    EVP_CIPHER_CTX_free(ctx);
+    return true;
 }
 
 bool rsaEncrypt(uint8_t* out, size_t* outLen,  const uint8_t* in, size_t inLen, const char* rsaPublicKey) {

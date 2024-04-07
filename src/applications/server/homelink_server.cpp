@@ -1,5 +1,4 @@
-#include <homelink_buffer.h>
-#include <homelink_keyset.h>
+#include <homelink_keypair.h>
 #include <homelink_misc.h>
 #include <homelink_packet.h>
 #include <homelink_security.h>
@@ -32,8 +31,7 @@ std::mutex serverLock;
 
 volatile bool isStopped = false;
 
-std::unordered_map<uint32_t, KeySet> controlKeys;
-std::unordered_map<uint32_t, KeySet> commandKeys;
+std::unordered_map<uint32_t, KeyPair> clientKeys;
 
 bool parseArgs(int argc, char *argv[])
 {
@@ -96,18 +94,18 @@ void* commandThread(void* a) {
     socklen_t sourceAddressLen = sizeof(sourceAddress);
     uint8_t buffer[1024];
     char data[256];
-    CommandPacket commandPacket;
+    CLIPacket cliPacket;
     size_t dataLen = sizeof(data);
     while(!isStopped) {
         memset(buffer, 0, sizeof(buffer));
         memset(data, 0, sizeof(data));
-        memset(&commandPacket, 0, sizeof(commandPacket));
+        memset(&cliPacket, 0, sizeof(cliPacket));
         dataLen = sizeof(data);
         int bytes = recvfrom(commandSocket, buffer, sizeof(buffer), 0, reinterpret_cast<struct sockaddr*>(&sourceAddress), &sourceAddressLen);
         uint8_t packetType = buffer[0];
-        if(bytes == CommandPacket_SIZE && packetType == e_Command) {
-            CommandPacket_deserialize(&commandPacket, buffer);
-            rsaDecrypt(reinterpret_cast<uint8_t*>(data), &dataLen, reinterpret_cast<const uint8_t*>(commandPacket.data), sizeof(commandPacket.data));
+        if(bytes == CLIPacket_SIZE && packetType == e_CLI) {
+            CLIPacket_deserialize(&cliPacket, buffer);
+            rsaDecrypt(reinterpret_cast<uint8_t*>(data), &dataLen, reinterpret_cast<const uint8_t*>(cliPacket.data), sizeof(cliPacket.data));
             handleCommand(reinterpret_cast<const struct sockaddr*>(&sourceAddress), sourceAddressLen, data);
         } else if(bytes == KeyRequestPacket_SIZE && packetType == e_KeyRequest) {
             KeyResponsePacket keyResponsePacket;

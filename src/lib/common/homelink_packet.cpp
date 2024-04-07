@@ -3,7 +3,7 @@
 #include <arpa/inet.h>
 #include <string.h>
 
-void CommandPacket_serialize(uint8_t* buffer, const CommandPacket* packet) {
+void CLIPacket_serialize(uint8_t* buffer, const CLIPacket* packet) {
     uint8_t *packetType = reinterpret_cast<uint8_t *>(buffer);
     uint8_t *rsaPublicKey = reinterpret_cast<uint8_t *>(buffer + sizeof(packet->packetType));
     uint8_t *data = reinterpret_cast<uint8_t*>(buffer + sizeof(packet->packetType) + sizeof(packet->rsaPublicKey));
@@ -12,7 +12,7 @@ void CommandPacket_serialize(uint8_t* buffer, const CommandPacket* packet) {
     memcpy(rsaPublicKey, packet->rsaPublicKey, sizeof(packet->rsaPublicKey));
     memcpy(data, packet->data, sizeof(packet->data));
 }
-void CommandPacket_deserialize(CommandPacket* packet, const uint8_t* buffer) {
+void CLIPacket_deserialize(CLIPacket* packet, const uint8_t* buffer) {
     const uint8_t *packetType = reinterpret_cast<const uint8_t *>(buffer);
     const uint8_t *rsaPublicKey = reinterpret_cast<const uint8_t *>(buffer + sizeof(packet->packetType));
     const uint8_t *data = reinterpret_cast<const uint8_t*>(buffer + sizeof(packet->packetType) + sizeof(packet->rsaPublicKey));

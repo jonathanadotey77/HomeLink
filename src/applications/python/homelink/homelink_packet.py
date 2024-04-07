@@ -8,7 +8,7 @@ e_KeyResponse = 2
 class PacketTypeException(Exception):
     pass
 
-class CommandPacket:
+class CLIPacket:
     def __init__(self, rsaPublicKey, data):
         self.packetType = e_Command
         self.rsaPublicKey = rsaPublicKey
@@ -23,7 +23,7 @@ class CommandPacket:
         packetType, rsaPublicKey, data = struct.unpack("B512s256s", buffer)
         if packetType != e_Command:
             raise PacketTypeException()
-        return CommandPacket(rsaPublicKey.decode("utf-8"), data.decode("utf-8"))
+        return CLIPacket(rsaPublicKey.decode("utf-8"), data.decode("utf-8"))
 
 class AckPacket:
     def __init__(self, value: int):
@@ -67,11 +67,11 @@ class KeyResponsePacket:
 
     @staticmethod
     def serialize(packet):
-        return struct.pack("BB512s256s", packet.packetType, 1 if packet.success else 0, packet.rsaPublicKey.encode("utf8"), packet.aesKey)
+        return struct.pack("BB512s32s", packet.packetType, 1 if packet.success else 0, packet.rsaPublicKey.encode("utf8"), packet.aesKey)
 
     @staticmethod
     def deserialize(buffer):
-        packetType, success, rsaPublicKey, aesKey = struct.unpack("BB512s256s", buffer)
+        packetType, success, rsaPublicKey, aesKey = struct.unpack("BB512s32s", buffer)
         if packetType != e_KeyResponse:
             raise PacketTypeException()
         return KeyResponsePacket(success == 1, rsaPublicKey.decode("utf-8"), aesKey)

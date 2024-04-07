@@ -138,12 +138,6 @@ void shutdownDaemon()
     cleanSecurity();
 }
 
-void handleCommand(const char* command, size_t commandLen) {
-    CommandPacket commandPacket;
-    memset(&commandPacket, 0, sizeof(commandPacket));
-    commandPacket.packetType = e_Command;
-}
-
 int main()
 {
     if (!readConfig())
@@ -154,24 +148,6 @@ int main()
     if (!init())
     {
         return 1;
-    }
-
-    char input[1024];
-    size_t inputLen = 0;
-    while(true) {
-        memset(input, 0, sizeof(input));
-        inputLen = 0;
-
-        for(char ch = fgetc(stdin); ch != '\n' && inputLen < 1023; ch = fgetc(stdin)) {
-            input[inputLen++] = ch;
-        }
-
-        handleCommand(input, inputLen);
-
-        if(inputLen == 4 && strncmp(input, "quit", 4) == 0) {
-            break;
-        }
-
     }
 
     shutdownDaemon();
