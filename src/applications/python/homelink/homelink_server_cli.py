@@ -8,6 +8,7 @@ myAddress = None
 mySocket = None
 serverRSAKey = None
 
+
 def init():
     global serverAddress, myAddress, mySocket, serverRSAKey
     initializeSecurity()
@@ -31,10 +32,14 @@ def init():
 
     return True
 
+
 def handleCommand(command):
-    cliPacket = CLIPacket(getRSAPublicKey(), rsaEncrypt(command.encode("utf-8"), serverRSAKey))
+    cliPacket = CLIPacket(
+        getRSAPublicKey(), rsaEncrypt(command.encode("utf-8"), serverRSAKey)
+    )
     data = CLIPacket.serialize(cliPacket)
     mySocket.sendto(data, serverAddress)
+
 
 def main():
     init()
@@ -44,11 +49,11 @@ def main():
 
         if command == "quit":
             break
-        
+
         handleCommand(command)
 
-
     mySocket.close()
+
 
 if __name__ == "__main__":
     try:

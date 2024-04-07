@@ -3,19 +3,21 @@
 #include <arpa/inet.h>
 #include <string.h>
 
-void CLIPacket_serialize(uint8_t* buffer, const CLIPacket* packet) {
+void CLIPacket_serialize(uint8_t *buffer, const CLIPacket *packet)
+{
     uint8_t *packetType = reinterpret_cast<uint8_t *>(buffer);
     uint8_t *rsaPublicKey = reinterpret_cast<uint8_t *>(buffer + sizeof(packet->packetType));
-    uint8_t *data = reinterpret_cast<uint8_t*>(buffer + sizeof(packet->packetType) + sizeof(packet->rsaPublicKey));
+    uint8_t *data = reinterpret_cast<uint8_t *>(buffer + sizeof(packet->packetType) + sizeof(packet->rsaPublicKey));
 
     *packetType = packet->packetType;
     memcpy(rsaPublicKey, packet->rsaPublicKey, sizeof(packet->rsaPublicKey));
     memcpy(data, packet->data, sizeof(packet->data));
 }
-void CLIPacket_deserialize(CLIPacket* packet, const uint8_t* buffer) {
+void CLIPacket_deserialize(CLIPacket *packet, const uint8_t *buffer)
+{
     const uint8_t *packetType = reinterpret_cast<const uint8_t *>(buffer);
     const uint8_t *rsaPublicKey = reinterpret_cast<const uint8_t *>(buffer + sizeof(packet->packetType));
-    const uint8_t *data = reinterpret_cast<const uint8_t*>(buffer + sizeof(packet->packetType) + sizeof(packet->rsaPublicKey));
+    const uint8_t *data = reinterpret_cast<const uint8_t *>(buffer + sizeof(packet->packetType) + sizeof(packet->rsaPublicKey));
 
     packet->packetType = *packetType;
     memcpy(packet->rsaPublicKey, rsaPublicKey, sizeof(packet->rsaPublicKey));
@@ -86,4 +88,25 @@ void KeyResponsePacket_deserialize(KeyResponsePacket *packet, const uint8_t *buf
     packet->success = *success;
     memcpy(&packet->rsaPublicKey, rsaPublicKey, sizeof(packet->rsaPublicKey));
     memcpy(&packet->aesKey, aesKey, sizeof(packet->aesKey));
+}
+
+void CommandPacket_serialize(uint8_t *buffer, const CommandPacket *packet)
+{
+    uint8_t *packetType = reinterpret_cast<uint8_t *>(buffer);
+    uint8_t *command = reinterpret_cast<uint8_t *>(buffer + sizeof(packet->packetType));
+    uint8_t *data = reinterpret_cast<uint8_t *>(buffer + sizeof(packet->packetType) + sizeof(packet->command));
+
+    *packetType = packet->packetType;
+    memcpy(command, packet->command, sizeof(packet->command));
+    memcpy(data, packet->data, sizeof(packet->data));
+}
+void CommandPacket_deserialize(CommandPacket *packet, const uint8_t *buffer)
+{
+    const uint8_t *packetType = reinterpret_cast<const uint8_t *>(buffer);
+    const uint8_t *command = reinterpret_cast<const uint8_t *>(buffer + sizeof(packet->packetType));
+    const uint8_t *data = reinterpret_cast<const uint8_t *>(buffer + sizeof(packet->packetType) + sizeof(packet->command));
+
+    packet->packetType = *packetType;
+    memcpy(packet->command, command, sizeof(packet->command));
+    memcpy(packet->data, data, sizeof(packet->data));
 }

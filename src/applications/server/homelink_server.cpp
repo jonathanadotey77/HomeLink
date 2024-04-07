@@ -65,11 +65,13 @@ bool parseArgs(int argc, char *argv[])
     return true;
 }
 
-void handleCommand(const struct sockaddr* sourceAddress, socklen_t sourceAddressLen, const char* command) {
+void handleCommand(const struct sockaddr *sourceAddress, socklen_t sourceAddressLen, const char *command)
+{
     printf("%s\n", command);
 }
 
-void* commandThread(void* a) {
+void *commandThread(void *a)
+{
     struct sockaddr_in6 commandAddress;
     memset(&commandAddress, 0, sizeof(commandAddress));
 
@@ -80,12 +82,14 @@ void* commandThread(void* a) {
     commandAddress.sin6_scope_id = 0;
 
     int commandSocket = socket(AF_INET6, SOCK_DGRAM, 0);
-    if(commandSocket < 0) {
+    if (commandSocket < 0)
+    {
         fprintf(stderr, "socket() failed [%d]\n", errno);
         return NULL;
     }
 
-    if(bind(commandSocket, reinterpret_cast<const struct sockaddr*>(&commandAddress), sizeof(commandAddress)) < 0) {
+    if (bind(commandSocket, reinterpret_cast<const struct sockaddr *>(&commandAddress), sizeof(commandAddress)) < 0)
+    {
         fprintf(stderr, "bind() failed [%d]\n", errno);
         return NULL;
     }
@@ -96,31 +100,36 @@ void* commandThread(void* a) {
     char data[256];
     CLIPacket cliPacket;
     size_t dataLen = sizeof(data);
-    while(!isStopped) {
+    while (!isStopped)
+    {
         memset(buffer, 0, sizeof(buffer));
         memset(data, 0, sizeof(data));
         memset(&cliPacket, 0, sizeof(cliPacket));
         dataLen = sizeof(data);
-        int bytes = recvfrom(commandSocket, buffer, sizeof(buffer), 0, reinterpret_cast<struct sockaddr*>(&sourceAddress), &sourceAddressLen);
+        int bytes = recvfrom(commandSocket, buffer, sizeof(buffer), 0, reinterpret_cast<struct sockaddr *>(&sourceAddress), &sourceAddressLen);
         uint8_t packetType = buffer[0];
-        if(bytes == CLIPacket_SIZE && packetType == e_CLI) {
+        if (bytes == CLIPacket_SIZE && packetType == e_CLI)
+        {
             CLIPacket_deserialize(&cliPacket, buffer);
-            rsaDecrypt(reinterpret_cast<uint8_t*>(data), &dataLen, reinterpret_cast<const uint8_t*>(cliPacket.data), sizeof(cliPacket.data));
-            handleCommand(reinterpret_cast<const struct sockaddr*>(&sourceAddress), sourceAddressLen, data);
-        } else if(bytes == KeyRequestPacket_SIZE && packetType == e_KeyRequest) {
+            rsaDecrypt(reinterpret_cast<uint8_t *>(data), &dataLen, reinterpret_cast<const uint8_t *>(cliPacket.data), sizeof(cliPacket.data));
+            handleCommand(reinterpret_cast<const struct sockaddr *>(&sourceAddress), sourceAddressLen, data);
+        }
+        else if (bytes == KeyRequestPacket_SIZE && packetType == e_KeyRequest)
+        {
             KeyResponsePacket keyResponsePacket;
             memset(&keyResponsePacket, 0, sizeof(keyResponsePacket));
             keyResponsePacket.packetType = e_KeyResponse;
             keyResponsePacket.success = 1;
-            char* publicKey = NULL;
+            char *publicKey = NULL;
             size_t len = sizeof(keyResponsePacket.rsaPublicKey);
             getRSAPublicKey(&publicKey, &len);
             strncpy(keyResponsePacket.rsaPublicKey, publicKey, len);
             delete[] publicKey;
 
             KeyResponsePacket_serialize(buffer, &keyResponsePacket);
-            int rc = sendto(commandSocket, buffer, KeyResponsePacket_SIZE, 0, reinterpret_cast<const struct sockaddr*>(&sourceAddress), sourceAddressLen);
-            if(rc < 0) {
+            int rc = sendto(commandSocket, buffer, KeyResponsePacket_SIZE, 0, reinterpret_cast<const struct sockaddr *>(&sourceAddress), sourceAddressLen);
+            if (rc < 0)
+            {
                 fprintf(stderr, "sendto() failed [%d]\n", errno);
             }
         }
@@ -129,18 +138,19 @@ void* commandThread(void* a) {
     return NULL;
 }
 
-void* listenerThread(void* a) {
-    if(1) return NULL;
+void *listenerThread(void *a)
+{
+    if (1)
+        return NULL;
     struct sockaddr_in6 sourceAddress;
     socklen_t sourceAddressLen = sizeof(sourceAddress);
     int rc = 0;
     uint8_t buffer[1024];
-    while(true) {
+    while (true)
+    {
         memset(&sourceAddress, 0, sizeof(sourceAddress));
         memset(buffer, 0, sizeof(buffer));
-        int bytes = recvfrom(controlSocket, buffer, sizeof(buffer), 0, reinterpret_cast<struct sockaddr*>(&sourceAddress), &sourceAddressLen);
-
-        
+        int bytes = recvfrom(controlSocket, buffer, sizeof(buffer), 0, reinterpret_cast<struct sockaddr *>(&sourceAddress), &sourceAddressLen);
     }
 
     return NULL;
@@ -148,17 +158,19 @@ void* listenerThread(void* a) {
 
 bool start()
 {
-    if(!initializeSecurity()) {
+    if (!initializeSecurity())
+    {
         return false;
     }
 
     memset(&listenerAddress, 0, sizeof(listenerAddress));
     controlSocket = socket(AF_INET6, SOCK_DGRAM, 0);
-    if(controlSocket < 0) {
+    if (controlSocket < 0)
+    {
         fprintf(stderr, "socket() failed [%d]\n", errno);
         cleanSecurity();
         return false;
-    }   
+    }
 
     dataSockets = new int[numPorts];
     dataAddresses = new struct sockaddr_in6[numPorts];
@@ -169,7 +181,8 @@ bool start()
     listenerAddress.sin6_flowinfo = 0;
     listenerAddress.sin6_scope_id = 0;
 
-    if(bind(controlSocket, reinterpret_cast<const sockaddr*>(&listenerAddress), sizeof(listenerAddress)) < 0) {
+    if (bind(controlSocket, reinterpret_cast<const sockaddr *>(&listenerAddress), sizeof(listenerAddress)) < 0)
+    {
         fprintf(stderr, "bind() failed [%d]\n", errno);
         cleanSecurity();
         return false;
@@ -207,7 +220,6 @@ bool start()
             return false;
         }
     }
-
 
     pthread_create(&commandThreadId, NULL, commandThread, NULL);
     pthread_create(&listenerThreadId, NULL, listenerThread, NULL);

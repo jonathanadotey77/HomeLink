@@ -108,7 +108,8 @@ bool readConfig()
 
 bool init()
 {
-    if(!initializeSecurity()) {
+    if (!initializeSecurity())
+    {
         return false;
     }
     controlSocket = socket(AF_INET6, SOCK_DGRAM, 0);
