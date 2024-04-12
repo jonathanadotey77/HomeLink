@@ -16,6 +16,8 @@ const char *serviceId = "DAEMON";
 char serverAddressStr[64];
 uint16_t serverPort;
 
+char passwordStr[65];
+
 int controlSocket = -1;
 int dataSocket = -1;
 
@@ -59,15 +61,15 @@ bool readConfig()
 
         if (key != NULL && value != NULL)
         {
-            if (strcmp(key, "host_id") == 0)
+            if (strncmp(key, "host_id", sizeof("host_id") - 1) == 0)
             {
                 strncpy(hostId, value, sizeof(hostId));
             }
-            else if (strcmp(key, "server_address") == 0)
+            else if (strncmp(key, "server_address", sizeof("server_address") - 1) == 0)
             {
                 strncpy(serverAddressStr, value, sizeof(serverAddressStr));
             }
-            else if (strcmp(key, "server_port") == 0)
+            else if (strncmp(key, "server_port", sizeof("server_port") - 1) == 0)
             {
                 serverPort = (uint16_t)atoi(value);
                 if (serverPort == 0)
@@ -75,6 +77,11 @@ bool readConfig()
                     fprintf(stderr, "Server port cannot be zero\n");
                     return false;
                 }
+            }
+            else if (strncmp(key, "password", sizeof("password") - 1) == 0)
+            {
+                strncpy(passwordStr, value, sizeof(passwordStr)-1);
+                passwordStr[sizeof(passwordStr)-1] = '\0';
             }
         }
     }

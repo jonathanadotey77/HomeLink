@@ -3,15 +3,17 @@
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <net/if.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 struct in6_addr getIpAddress()
 {
-    struct ifaddrs *ifAddrStruct = nullptr;
-    struct ifaddrs *ifa = nullptr;
+    struct ifaddrs *ifAddrStruct = NULL;
+    struct ifaddrs *ifa = NULL;
 
     if (getifaddrs(&ifAddrStruct) == -1)
     {
@@ -19,26 +21,26 @@ struct in6_addr getIpAddress()
         return in6addr_any;
     }
 
-    for (ifa = ifAddrStruct; ifa != nullptr; ifa = ifa->ifa_next)
+    for (ifa = ifAddrStruct; ifa != NULL; ifa = ifa->ifa_next)
     {
-        if (ifa->ifa_addr == nullptr)
+        if (ifa->ifa_addr == NULL)
         {
             continue;
         }
 
         if (ifa->ifa_addr->sa_family == AF_INET6 && (ifa->ifa_flags & IFF_LOOPBACK) == 0)
         {
-            struct sockaddr_in6 *addr = reinterpret_cast<struct sockaddr_in6 *>(ifa->ifa_addr);
+            struct sockaddr_in6 *addr = (struct sockaddr_in6 *)(ifa->ifa_addr);
             if (!IN6_IS_ADDR_LINKLOCAL(&addr->sin6_addr) && !IN6_IS_ADDR_LOOPBACK(&addr->sin6_addr))
             {
-                in6_addr ipAddress = addr->sin6_addr;
+                struct in6_addr ipAddress = addr->sin6_addr;
                 freeifaddrs(ifAddrStruct);
                 return ipAddress;
             }
         }
     }
 
-    if (ifAddrStruct != nullptr)
+    if (ifAddrStruct != NULL)
     {
         freeifaddrs(ifAddrStruct);
     }
@@ -116,11 +118,11 @@ struct in6_addr parseIpAddress(const char *addressStr)
 
 void getByteStr(char *dest, const void *src, int n)
 {
-    const uint8_t *p = static_cast<const uint8_t *>(src);
+    const uint8_t *p = (const uint8_t *)(src);
 
     const char *hex = "0123456789abcdef";
     char *pout = dest;
-    const uint8_t *ptr = reinterpret_cast<const uint8_t *>(src);
+    const uint8_t *ptr = (const uint8_t *)(src);
     int i = 0;
     for (; i < n - 1; ++i)
     {
@@ -134,10 +136,10 @@ void getByteStr(char *dest, const void *src, int n)
 
 void printBytes(const void *buffer, int n)
 {
-    char *temp = new char[n << 2];
+    char *temp = malloc(n << 2);
 
     getByteStr(temp, buffer, n);
     printf("%s\n", temp);
 
-    delete[] temp;
+    free(temp);
 }

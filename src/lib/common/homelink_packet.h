@@ -15,7 +15,9 @@ extern "C"
         e_KeyRequest = 1,
         e_KeyResponse = 2,
         e_Handshake = 3,
-        e_Command
+        e_Command = 4,
+        e_LoginRequest = 5,
+        e_LoginResponse = 6
     };
 
     // UDP localhost only
@@ -25,7 +27,7 @@ extern "C"
         char rsaPublicKey[512];
         char data[256];
     } CLIPacket;
-    const uint32_t CLIPacket_SIZE = sizeof(((CLIPacket){0}).packetType) + sizeof(((CLIPacket){0}).rsaPublicKey) + sizeof(((CLIPacket){0}).data);
+    extern const uint32_t CLIPacket_SIZE;
     void CLIPacket_serialize(uint8_t *buffer, const CLIPacket *packet);
     void CLIPacket_deserialize(CLIPacket *packet, const uint8_t *buffer);
 
@@ -34,17 +36,17 @@ extern "C"
         uint8_t packetType;
         uint32_t value;
     } AckPacket;
-    const uint32_t AckPacket_SIZE = sizeof(((AckPacket){0}).packetType) + sizeof(((AckPacket){0}).value);
+    extern const uint32_t AckPacket_SIZE;
     void AckPacket_serialize(uint8_t *buffer, const AckPacket *packet);
     void AckPacket_deserialize(AckPacket *packet, const uint8_t *buffer);
 
     typedef struct KeyRequestPacket
     {
         uint8_t packetType;
-        uint32_t keysetId;
+        uint32_t connectionId;
         char rsaPublicKey[512];
     } KeyRequestPacket;
-    const uint32_t KeyRequestPacket_SIZE = sizeof(((KeyRequestPacket){0}).packetType) + sizeof(((KeyRequestPacket){0}).keysetId) + sizeof(((KeyRequestPacket){0}).rsaPublicKey);
+    extern const uint32_t KeyRequestPacket_SIZE;
     void KeyRequestPacket_serialize(uint8_t *buffer, const KeyRequestPacket *packet);
     void KeyRequestPacket_deserialize(KeyRequestPacket *packet, const uint8_t *buffer);
 
@@ -56,19 +58,41 @@ extern "C"
         char rsaPublicKey[512];
         uint8_t aesKey[32];
     } KeyResponsePacket;
-    const uint32_t KeyResponsePacket_SIZE = sizeof(((KeyResponsePacket){0}).packetType) + sizeof(((KeyResponsePacket){0}).success) + sizeof(((KeyResponsePacket){0}).rsaPublicKey) + sizeof(((KeyResponsePacket){0}).aesKey);
+    extern const uint32_t KeyResponsePacket_SIZE;
     void KeyResponsePacket_serialize(uint8_t *buffer, const KeyResponsePacket *packet);
     void KeyResponsePacket_deserialize(KeyResponsePacket *packet, const uint8_t *buffer);
 
     typedef struct CommandPacket
     {
         uint8_t packetType;
+        uint8_t sessionToken[64];
         char command[12];
         uint8_t data[400];
     } CommandPacket;
-    const uint32_t CommandPacket_SIZE = sizeof(((CommandPacket){0}).packetType) + sizeof(((CommandPacket){0}).command) + sizeof(((CommandPacket){0}).data);
+    extern const uint32_t CommandPacket_SIZE;
     void CommandPacket_serialize(uint8_t *buffer, const CommandPacket *packet);
     void CommandPacket_deserialize(CommandPacket *packet, const uint8_t *buffer);
+
+    typedef struct LoginRequestPacket
+    {
+        uint8_t packetType;
+        uint32_t connectionId;
+        char username[33];
+        uint8_t salt[64];
+        uint8_t password[128];
+    } LoginRequestPacket;
+    extern const uint32_t LoginRequestPacket_SIZE;
+    void LoginRequestPacket_serialize(uint8_t *buffer, const LoginRequestPacket *packet);
+    void LoginRequestPacket_deserialize(LoginRequestPacket *packet, const uint8_t *buffer);
+
+    typedef struct LoginResponsePacket
+    {
+        uint8_t packetType;
+        uint8_t sessionToken[32];
+    } LoginResponsePacket;
+    extern const uint32_t LoginResponsePacket_SIZE;
+    void LoginResponsePacket_serialize(uint8_t *buffer, const LoginResponsePacket *packet);
+    void LoginResponsePacket_deserialize(LoginResponsePacket *packet, const uint8_t *buffer);
 
 #ifdef __cplusplus
 }

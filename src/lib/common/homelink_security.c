@@ -87,7 +87,7 @@ void getRSAPublicKey(char **buffer, size_t *len)
 
     char *publicKey = NULL;
     *len = BIO_get_mem_data(bio, &publicKey);
-    *buffer = new char[(*len) + 1];
+    *buffer = malloc((*len) + 1);
     memcpy(*buffer, publicKey, *len);
     (*buffer)[*len] = '\0';
 
@@ -103,7 +103,7 @@ void printRSAPublicKey()
 
     printf("Key: %s\n", key);
     printf("Len: %lu\n", len);
-    delete[] key;
+    free(key);
 }
 
 void randomBytes(uint8_t *buffer, int n)
@@ -118,7 +118,7 @@ void randomBytes(uint8_t *buffer, int n)
 
 void generateAESKey(uint8_t *buffer, uint16_t keySize)
 {
-    randomBytes(buffer, static_cast<int>(keySize / 8));
+    randomBytes(buffer, (int)(keySize / 8));
 }
 
 bool aesEncrypt(uint8_t *out, int *outLen, const uint8_t *in, int inLen, const uint8_t *key, const uint8_t *iv, uint8_t *tag)
@@ -160,11 +160,11 @@ bool aesEncrypt(uint8_t *out, int *outLen, const uint8_t *in, int inLen, const u
         return false;
     }
 
-    uint8_t *temp = new uint8_t[*outLen];
+    uint8_t *temp = malloc(*outLen);
     int tempLen = *outLen;
 
     rc = EVP_EncryptFinal(ctx, temp, &tempLen);
-    delete[] temp;
+    free(temp);
     if (rc <= 0)
     {
         fprintf(stderr, "EncryptFinal failed in aesEncrypt()\n");
@@ -288,13 +288,32 @@ bool rsaEncrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen, c
     return true;
 }
 
-bool rsaDecrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen)
+bool rsaDecrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen, const char *rsaPublicKey)
 {
-    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(keypair, NULL);
-    if (ctx == NULL)
+    EVP_PKEY_CTX *ctx = NULL;
+    if (rsaPublicKey == NULL)
     {
-        fprintf(stderr, "Could not create ctx in rsaDecrypt()\n");
-        return false;
+        ctx = EVP_PKEY_CTX_new(keypair, NULL);
+        if (ctx == NULL)
+        {
+            fprintf(stderr, "Could not create ctx in rsaDecrypt()\n");
+            return false;
+        }
+    }
+    else
+    {
+        BIO *bio = BIO_new_mem_buf(rsaPublicKey, -1);
+        EVP_PKEY *publicKey = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
+
+        EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(publicKey, NULL);
+        if (ctx == NULL)
+        {
+            fprintf(stderr, "Could not create ctx in rsaDecrypt()\n");
+            EVP_PKEY_free(publicKey);
+            return false;
+        }
+
+        BIO_free_all(bio);
     }
 
     int rc = 0;
@@ -326,12 +345,42 @@ bool rsaDecrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen)
     return true;
 }
 
-ssize_t secureSendTo(int sockFd, const void *buffer, uint32_t n, const struct sockaddr_in6 *address, uint8_t *encrpytionKey, int *error)
+char *hashPassword(const char *password, size_t passwordLen)
 {
-    return -1;
+    unsigned char digest[SHA256_DIGEST_LENGTH] = {0};
+    EVP_MD_CTX *mdctx;
+    const EVP_MD *md;
+    unsigned int md_len;
+
+    OpenSSL_add_all_algorithms();
+    md = EVP_get_digestbyname("sha256");
+
+    mdctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(mdctx, md, NULL);
+    EVP_DigestUpdate(mdctx, password, passwordLen);
+    EVP_DigestFinal_ex(mdctx, digest, &md_len);
+    EVP_MD_CTX_free(mdctx);
+
+    char *hashedPassword = malloc(SHA256_DIGEST_LENGTH * 2 + 1);
+
+    getByteStr(hashedPassword, digest, SHA256_DIGEST_LENGTH * 2);
+
+    hashedPassword[SHA256_DIGEST_LENGTH * 2] = '\0';
+
+    return hashedPassword;
 }
 
-ssize_t secureRecvFrom(int sockFd, void *buffer, uint32_t n, const struct sockaddr_in6 *expectedAddress, struct sockaddr_in6 *fromAddress, int *error)
+char *saltedHash(const char *password, size_t passwordLen, const char *salt, size_t saltLen)
 {
-    return -1;
+    size_t len = passwordLen + saltLen;
+    char *saltedPassword = malloc(len + 1);
+
+    strncpy(saltedPassword, password, passwordLen);
+    strncpy(saltedPassword + passwordLen, salt, saltLen);
+    saltedPassword[len] = '\0';
+
+    char *out = hashPassword(saltedPassword, len);
+    free(saltedPassword);
+
+    return out;
 }

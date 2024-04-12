@@ -1,4 +1,6 @@
 #include <homelink_keypair.h>
+#include <homelink_loginstatus.h>
+#include <homelink_loginsystem.h>
 #include <homelink_misc.h>
 #include <homelink_packet.h>
 #include <homelink_security.h>
@@ -6,6 +8,7 @@
 #include <arpa/inet.h>
 #include <iostream>
 #include <mutex>
+#include <poll.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <string.h>
@@ -32,6 +35,7 @@ std::mutex serverLock;
 volatile bool isStopped = false;
 
 std::unordered_map<uint32_t, KeyPair> clientKeys;
+std::mutex clientKeysLock;
 
 bool parseArgs(int argc, char *argv[])
 {
@@ -111,7 +115,7 @@ void *commandThread(void *a)
         if (bytes == CLIPacket_SIZE && packetType == e_CLI)
         {
             CLIPacket_deserialize(&cliPacket, buffer);
-            rsaDecrypt(reinterpret_cast<uint8_t *>(data), &dataLen, reinterpret_cast<const uint8_t *>(cliPacket.data), sizeof(cliPacket.data));
+            rsaDecrypt(reinterpret_cast<uint8_t *>(data), &dataLen, reinterpret_cast<const uint8_t *>(cliPacket.data), sizeof(cliPacket.data), NULL);
             handleCommand(reinterpret_cast<const struct sockaddr *>(&sourceAddress), sourceAddressLen, data);
         }
         else if (bytes == KeyRequestPacket_SIZE && packetType == e_KeyRequest)
@@ -140,17 +144,67 @@ void *commandThread(void *a)
 
 void *listenerThread(void *a)
 {
-    if (1)
-        return NULL;
     struct sockaddr_in6 sourceAddress;
     socklen_t sourceAddressLen = sizeof(sourceAddress);
     int rc = 0;
     uint8_t buffer[1024];
-    while (true)
+    while (!isStopped)
     {
+
+        struct pollfd fds[1];
+        fds[0].fd = controlSocket;
+        fds[0].events = POLLIN;
+        fds[0].revents = 0;
+
+        int rc = 0;
+
+        rc = poll(fds, 1, 3000);
+        if (rc < 0)
+        {
+            fprintf(stderr, "poll() error [%d]\n", errno);
+        }
+        else if (rc == 0)
+        {
+            continue;
+        }
+
         memset(&sourceAddress, 0, sizeof(sourceAddress));
         memset(buffer, 0, sizeof(buffer));
-        int bytes = recvfrom(controlSocket, buffer, sizeof(buffer), 0, reinterpret_cast<struct sockaddr *>(&sourceAddress), &sourceAddressLen);
+        rc = recvfrom(controlSocket, buffer, sizeof(buffer), 0, reinterpret_cast<struct sockaddr *>(&sourceAddress), &sourceAddressLen);
+        if (rc < 0)
+        {
+            fprintf(stderr, "recfrom() failed [%d]\n", errno);
+            continue;
+        }
+        else if (rc == 0)
+        {
+            fprintf(stderr, "recvfrom(): 0 bytes received\n");
+            continue;
+        }
+
+        const uint8_t packetType = buffer[0];
+
+        if (packetType == e_LoginRequest && rc == LoginRequestPacket_SIZE)
+        {
+            LoginRequestPacket loginRequestPacket;
+            LoginRequestPacket_deserialize(&loginRequestPacket, buffer);
+
+            uint8_t salt[sizeof(loginRequestPacket.salt)] = {0};
+            size_t saltLen = sizeof(salt);
+            uint8_t password[sizeof(loginRequestPacket.password)] = {0};
+            size_t passwordLen = sizeof(password);
+            rsaDecrypt(salt, &saltLen, salt, sizeof(salt), NULL);
+            rsaDecrypt(password, &passwordLen, loginRequestPacket.password, sizeof(loginRequestPacket.password), NULL);
+            for(int i = 0; i < 32; ++i) {
+                password[i] ^= salt[i];
+                password[i + 32] ^= salt[i];
+                password[i + 64] = '\0';
+                password[i + 96] = '\0';
+            }
+
+            memset(salt, 0, sizeof(salt));
+            memset(password, 0, sizeof(password));
+        }
     }
 
     return NULL;

@@ -31,19 +31,14 @@ extern "C"
 
     bool aesDecrypt(uint8_t *out, int *outLen, const uint8_t *in, int inLen, const uint8_t *key, const uint8_t *iv, uint8_t *tag);
 
-    bool rsaEncrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen, const char *rsaPemKey);
+    bool rsaEncrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen, const char *rsaPublicKey);
 
-    bool rsaDecrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen);
+    bool rsaDecrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen, const char *rsaPublicKey);
 
-    // void hashString(const char* unhashed, char* hashed);
+    char* hashPassword(const char *password, size_t passwordLen);
 
-    // bool validPassword(const char* password, unsigned long n);
-
-    // TCP
-    ssize_t secureSend(int sockFd, const void *buffer, uint32_t n, const struct sockaddr_in6 *address, int *error);
-
-    ssize_t secureRecv(int sockFd, void *buffer, uint32_t n, const struct sockaddr_in6 *expectedAddress, struct sockaddr_in6 *fromAddress, int *error);
-
+    char* saltedHash(const char* password, size_t passwordLen, const char* salt, size_t saltLen);
+    
 #ifdef __cplusplus
 }
 #endif
