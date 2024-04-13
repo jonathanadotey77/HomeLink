@@ -10,6 +10,7 @@
 #include <mutex>
 #include <poll.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -24,10 +25,13 @@ uint16_t serverStartPort = 10001;
 uint16_t numPorts = 10;
 
 int controlSocket = -1;
+int commandSocket = -1;
 int *dataSockets = NULL;
 
 struct sockaddr_in6 listenerAddress;
+struct sockaddr_in6 commandAddress;
 struct sockaddr_in6 *dataAddresses;
+
 
 pthread_t listenerThreadId = 0;
 pthread_t commandThreadId = 0;
@@ -40,6 +44,13 @@ std::unordered_map<uint32_t, KeySet> clientKeys;
 std::mutex clientKeysLock;
 
 LoginSystem loginSystem;
+
+void terminationHandler(int sig)
+{
+    fprintf(stderr, "Received signal: %s\n", strsignal(sig));
+
+    isStopped = true;
+}
 
 bool parseArgs(int argc, char *argv[])
 {
@@ -127,57 +138,57 @@ void handleCLICommand(int commandSocket, const struct sockaddr *sourceAddress, s
     CLIPacket_serialize(buffer, &cliPacket);
 
     int rc = sendto(commandSocket, buffer, sizeof(buffer), 0, sourceAddress, sourceAddressLen);
-    if(rc < 0) {
+    if (rc < 0)
+    {
         fprintf(stderr, "sendto() failed [%d]\n", errno);
     }
 }
 
 void *commandThread(void *)
 {
-    struct sockaddr_in6 commandAddress;
-    memset(&commandAddress, 0, sizeof(commandAddress));
-
-    commandAddress.sin6_family = AF_INET6;
-    commandAddress.sin6_addr = parseIpAddress("127.0.0.1");
-    commandAddress.sin6_port = htons(45000);
-    commandAddress.sin6_flowinfo = 0;
-    commandAddress.sin6_scope_id = 0;
-
-    int commandSocket = socket(AF_INET6, SOCK_DGRAM, 0);
-    if (commandSocket < 0)
-    {
-        fprintf(stderr, "socket() failed [%d]\n", errno);
-        return NULL;
-    }
-
-    if (bind(commandSocket, reinterpret_cast<const struct sockaddr *>(&commandAddress), sizeof(commandAddress)) < 0)
-    {
-        fprintf(stderr, "bind() failed [%d]\n", errno);
-        return NULL;
-    }
-
     struct sockaddr_in6 sourceAddress;
     socklen_t sourceAddressLen = sizeof(sourceAddress);
     uint8_t buffer[1024];
     char data[257];
     CLIPacket cliPacket;
     size_t dataLen = sizeof(data) - 1;
+    int rc = 0;
+    struct pollfd fds[1];
+    memset(fds, 0, sizeof(fds));
     while (!isStopped)
     {
+
+        fds[0].fd = commandSocket;
+        fds[0].events = POLLIN;
+        fds[0].revents = 0;
+
+        rc = poll(fds, 1, 2000);
+        if (rc < 0)
+        {
+            fprintf(stderr, "poll() error [%d]\n", errno);
+            break;
+        }
+        else if (rc == 0)
+        {
+            continue;
+        }
+
+        printf("Loop\n");
         memset(buffer, 0, sizeof(buffer));
         memset(data, 0, sizeof(data));
         memset(&cliPacket, 0, sizeof(cliPacket));
         dataLen = sizeof(data);
-        int bytes = recvfrom(commandSocket, buffer, sizeof(buffer), 0, reinterpret_cast<struct sockaddr *>(&sourceAddress), &sourceAddressLen);
+
+        rc = recvfrom(commandSocket, buffer, sizeof(buffer), 0, reinterpret_cast<struct sockaddr *>(&sourceAddress), &sourceAddressLen);
         uint8_t packetType = buffer[0];
-        if (bytes == CLIPacket_SIZE && packetType == e_CLI)
+        if (rc == CLIPacket_SIZE && packetType == e_CLI)
         {
             CLIPacket_deserialize(&cliPacket, buffer);
             rsaDecrypt(reinterpret_cast<uint8_t *>(data), &dataLen, reinterpret_cast<const uint8_t *>(cliPacket.data), sizeof(cliPacket.data), NULL);
             data[sizeof(data) - 1] = '\0';
             handleCLICommand(commandSocket, reinterpret_cast<const struct sockaddr *>(&sourceAddress), sourceAddressLen, std::string(data));
         }
-        else if (bytes == KeyRequestPacket_SIZE && packetType == e_KeyRequest)
+        else if (rc == KeyRequestPacket_SIZE && packetType == e_KeyRequest)
         {
             KeyResponsePacket keyResponsePacket;
             memset(&keyResponsePacket, 0, sizeof(keyResponsePacket));
@@ -273,7 +284,7 @@ void *listenerThread(void *)
                 const char *sessionToken = clientKeys[connectionId].newSessionKey();
                 size_t outLen = sizeof(loginResponsePacket.sessionKey);
 
-                rsaEncrypt(loginResponsePacket.sessionKey, &outLen, reinterpret_cast<const uint8_t *>(sessionToken), strlen(sessionToken) + 1, clientKeys[connectionId].getPublicKey());
+                rsaEncrypt(loginResponsePacket.sessionKey, &outLen, reinterpret_cast<const uint8_t *>(sessionToken), strlen(sessionToken), clientKeys[connectionId].getPublicKey());
 
                 memset(buffer, 0, sizeof(buffer));
                 LoginResponsePacket_serialize(buffer, &loginResponsePacket);
@@ -411,6 +422,7 @@ void *listenerThread(void *)
 
 bool start()
 {
+
     if (!loginSystem.start())
     {
         fprintf(stderr, "Failed to start login system\n");
@@ -431,6 +443,13 @@ bool start()
         return false;
     }
 
+    commandSocket = socket(AF_INET6, SOCK_DGRAM, 0);
+    if (commandSocket < 0)
+    {
+        fprintf(stderr, "socket() failed [%d]\n", errno);
+        return NULL;
+    }
+
     dataSockets = new int[numPorts];
     dataAddresses = new struct sockaddr_in6[numPorts];
 
@@ -440,6 +459,12 @@ bool start()
     listenerAddress.sin6_flowinfo = 0;
     listenerAddress.sin6_scope_id = 0;
 
+    commandAddress.sin6_family = AF_INET6;
+    commandAddress.sin6_addr = parseIpAddress("127.0.0.1");
+    commandAddress.sin6_port = htons(45000);
+    commandAddress.sin6_flowinfo = 0;
+    commandAddress.sin6_scope_id = 0;
+
     if (bind(controlSocket, reinterpret_cast<const sockaddr *>(&listenerAddress), sizeof(listenerAddress)) < 0)
     {
         fprintf(stderr, "bind() failed [%d]\n", errno);
@@ -447,6 +472,11 @@ bool start()
         return false;
     }
 
+    if (bind(commandSocket, reinterpret_cast<const struct sockaddr *>(&commandAddress), sizeof(commandAddress)) < 0)
+    {
+        fprintf(stderr, "bind() failed [%d]\n", errno);
+        return NULL;
+    }
     for (uint16_t i = 0; i < numPorts; ++i)
     {
         bool failed = false;
@@ -480,6 +510,8 @@ bool start()
         }
     }
 
+    signal(SIGTSTP, terminationHandler);
+    signal(SIGINT, terminationHandler);
     pthread_create(&commandThreadId, NULL, commandThread, NULL);
     pthread_create(&listenerThreadId, NULL, listenerThread, NULL);
 
@@ -488,8 +520,6 @@ bool start()
 
 void stop()
 {
-    loginSystem.stop();
-
     close(controlSocket);
     for (int i = 0; i < numPorts; ++i)
     {
@@ -498,6 +528,10 @@ void stop()
 
     delete[] dataAddresses;
     delete[] dataSockets;
+
+    close(commandSocket);
+
+    loginSystem.stop();
 
     cleanSecurity();
 }
