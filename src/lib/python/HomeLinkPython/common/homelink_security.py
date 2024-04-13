@@ -8,7 +8,6 @@ RSA_KEY_SIZE = 2048
 
 keypair = None
 
-
 def randomBytes(n: int):
     return Random.get_random_bytes(n)
 

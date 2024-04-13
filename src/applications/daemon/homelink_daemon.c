@@ -410,6 +410,10 @@ bool login()
     return true;
 }
 
+void run() {
+    
+}
+
 int main()
 {
     if (!readConfig())
@@ -428,6 +432,8 @@ int main()
         fprintf(stderr, "Login failed\n");
         return 1;
     }
+
+    run();
 
     shutdownDaemon();
 

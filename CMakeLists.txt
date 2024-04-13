@@ -9,7 +9,6 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS}")
 
-file(COPY src/applications/python DESTINATION ${CMAKE_BINARY_DIR}/applications)
-
 add_subdirectory(src/applications)
-add_subdirectory(src/lib/common)
+add_subdirectory(src/lib/c)
+add_subdirectory(src/lib/python)

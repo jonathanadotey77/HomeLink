@@ -1,5 +1,5 @@
-from homelink_packet import *
-from homelink_security import *
+from HomeLinkPython.common.homelink_packet import *
+from HomeLinkPython.common.homelink_security import *
 
 import socket
 

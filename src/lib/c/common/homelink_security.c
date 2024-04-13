@@ -18,14 +18,6 @@ static const size_t RSA_KEY_SIZE = 2048U;
 static bool randInitialized = false;
 static EVP_PKEY *keypair = NULL;
 
-// static void loadRSAPublicKey(EVP_PKEY **key, char *pemKey, size_t len)
-// {
-//     BIO *bio = BIO_new_mem_buf(pemKey, len);
-//     *key = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
-
-//     BIO_free(bio);
-// }
-
 bool initializeSecurity()
 {
     OpenSSL_add_all_algorithms();
