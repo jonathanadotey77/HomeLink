@@ -1,4 +1,4 @@
-#include <homelink_keypair.h>
+#include <homelink_keyset.h>
 #include <homelink_loginstatus.h>
 #include <homelink_loginsystem.h>
 #include <homelink_misc.h>
@@ -17,6 +17,8 @@
 #include <unordered_map>
 #include <vector>
 
+bool verbose = false;
+
 uint16_t listenerPort = 10000;
 uint16_t serverStartPort = 10001;
 uint16_t numPorts = 10;
@@ -34,8 +36,10 @@ std::mutex serverLock;
 
 volatile bool isStopped = false;
 
-std::unordered_map<uint32_t, KeyPair> clientKeys;
+std::unordered_map<uint32_t, KeySet> clientKeys;
 std::mutex clientKeysLock;
+
+LoginSystem loginSystem;
 
 bool parseArgs(int argc, char *argv[])
 {
@@ -57,7 +61,20 @@ bool parseArgs(int argc, char *argv[])
         else if (command == "--num-ports")
         {
             int n = atoi(argv[i + 1]);
+            if (n >= 10)
+            {
+                numPorts = n;
+            }
+            else
+            {
+                fprintf(stderr, "Number of ports must be at least 10, dafaulting to 10\n");
+            }
             i += 2;
+        }
+        else if (command == "--verbose")
+        {
+            verbose = true;
+            i += 1;
         }
         else
         {
@@ -69,12 +86,53 @@ bool parseArgs(int argc, char *argv[])
     return true;
 }
 
-void handleCommand(const struct sockaddr *sourceAddress, socklen_t sourceAddressLen, const char *command)
+std::vector<std::string> splitString(const std::string &s, char delim = ' ')
 {
-    printf("%s\n", command);
+    std::vector<std::string> tokens;
+
+    std::string temp;
+    for (char c : s)
+    {
+        if (c == delim)
+        {
+            tokens.push_back(temp);
+            temp.clear();
+        }
+        else
+        {
+            temp.push_back(c);
+        }
+    }
+
+    if (!temp.empty())
+    {
+        tokens.push_back(temp);
+    }
+
+    return tokens;
 }
 
-void *commandThread(void *a)
+void handleCLICommand(int commandSocket, const struct sockaddr *sourceAddress, socklen_t sourceAddressLen, const std::string &input)
+{
+    printf("%s\n", input.c_str());
+
+    std::vector<std::string> tokens = splitString(input);
+
+    std::string command = tokens[0];
+
+    CLIPacket cliPacket;
+    memset(&cliPacket, 0, sizeof(cliPacket));
+
+    uint8_t buffer[sizeof(cliPacket)] = {0};
+    CLIPacket_serialize(buffer, &cliPacket);
+
+    int rc = sendto(commandSocket, buffer, sizeof(buffer), 0, sourceAddress, sourceAddressLen);
+    if(rc < 0) {
+        fprintf(stderr, "sendto() failed [%d]\n", errno);
+    }
+}
+
+void *commandThread(void *)
 {
     struct sockaddr_in6 commandAddress;
     memset(&commandAddress, 0, sizeof(commandAddress));
@@ -101,9 +159,9 @@ void *commandThread(void *a)
     struct sockaddr_in6 sourceAddress;
     socklen_t sourceAddressLen = sizeof(sourceAddress);
     uint8_t buffer[1024];
-    char data[256];
+    char data[257];
     CLIPacket cliPacket;
-    size_t dataLen = sizeof(data);
+    size_t dataLen = sizeof(data) - 1;
     while (!isStopped)
     {
         memset(buffer, 0, sizeof(buffer));
@@ -116,7 +174,8 @@ void *commandThread(void *a)
         {
             CLIPacket_deserialize(&cliPacket, buffer);
             rsaDecrypt(reinterpret_cast<uint8_t *>(data), &dataLen, reinterpret_cast<const uint8_t *>(cliPacket.data), sizeof(cliPacket.data), NULL);
-            handleCommand(reinterpret_cast<const struct sockaddr *>(&sourceAddress), sourceAddressLen, data);
+            data[sizeof(data) - 1] = '\0';
+            handleCLICommand(commandSocket, reinterpret_cast<const struct sockaddr *>(&sourceAddress), sourceAddressLen, std::string(data));
         }
         else if (bytes == KeyRequestPacket_SIZE && packetType == e_KeyRequest)
         {
@@ -124,11 +183,10 @@ void *commandThread(void *a)
             memset(&keyResponsePacket, 0, sizeof(keyResponsePacket));
             keyResponsePacket.packetType = e_KeyResponse;
             keyResponsePacket.success = 1;
-            char *publicKey = NULL;
+            char publicKey[512] = {0};
             size_t len = sizeof(keyResponsePacket.rsaPublicKey);
-            getRSAPublicKey(&publicKey, &len);
+            getRSAPublicKey(publicKey, &len);
             strncpy(keyResponsePacket.rsaPublicKey, publicKey, len);
-            delete[] publicKey;
 
             KeyResponsePacket_serialize(buffer, &keyResponsePacket);
             int rc = sendto(commandSocket, buffer, KeyResponsePacket_SIZE, 0, reinterpret_cast<const struct sockaddr *>(&sourceAddress), sourceAddressLen);
@@ -142,7 +200,7 @@ void *commandThread(void *a)
     return NULL;
 }
 
-void *listenerThread(void *a)
+void *listenerThread(void *)
 {
     struct sockaddr_in6 sourceAddress;
     socklen_t sourceAddressLen = sizeof(sourceAddress);
@@ -155,8 +213,6 @@ void *listenerThread(void *a)
         fds[0].fd = controlSocket;
         fds[0].events = POLLIN;
         fds[0].revents = 0;
-
-        int rc = 0;
 
         rc = poll(fds, 1, 3000);
         if (rc < 0)
@@ -181,29 +237,172 @@ void *listenerThread(void *a)
             fprintf(stderr, "recvfrom(): 0 bytes received\n");
             continue;
         }
-
         const uint8_t packetType = buffer[0];
+
+        if (verbose)
+        {
+            char *ipAddress = new char[64];
+            getIpv6Str(ipAddress, &sourceAddress.sin6_addr);
+            printf("Received %d bytes from %s:%d \n", rc, ipAddress, ntohs(sourceAddress.sin6_port));
+            printf("    Packet type: %d\n", static_cast<int>(packetType));
+            delete[] ipAddress;
+        }
 
         if (packetType == e_LoginRequest && rc == LoginRequestPacket_SIZE)
         {
             LoginRequestPacket loginRequestPacket;
             LoginRequestPacket_deserialize(&loginRequestPacket, buffer);
 
-            uint8_t salt[sizeof(loginRequestPacket.salt)] = {0};
-            size_t saltLen = sizeof(salt);
-            uint8_t password[sizeof(loginRequestPacket.password)] = {0};
-            size_t passwordLen = sizeof(password);
-            rsaDecrypt(salt, &saltLen, salt, sizeof(salt), NULL);
-            rsaDecrypt(password, &passwordLen, loginRequestPacket.password, sizeof(loginRequestPacket.password), NULL);
-            for(int i = 0; i < 32; ++i) {
-                password[i] ^= salt[i];
-                password[i + 32] ^= salt[i];
-                password[i + 64] = '\0';
-                password[i + 96] = '\0';
+            uint8_t data[256] = {0};
+            size_t dataLen = sizeof(data);
+            rsaDecrypt(data, &dataLen, loginRequestPacket.data, sizeof(loginRequestPacket.data), NULL);
+            const uint32_t connectionId = loginRequestPacket.connectionId;
+            if (clientKeys.find(connectionId) == clientKeys.end())
+            {
+                continue;
+            }
+            uint32_t tag = ntohl(*(reinterpret_cast<const uint32_t *>(data)));
+            const char *username = loginRequestPacket.username;
+            const char *password = reinterpret_cast<const char *>(data + 32);
+
+            if (clientKeys[connectionId].checkTag(tag) && loginSystem.tryLogin(username, reinterpret_cast<const char *>(password)) == e_LoginSuccess)
+            {
+                LoginResponsePacket loginResponsePacket;
+                loginResponsePacket.packetType = e_LoginResponse;
+                loginResponsePacket.status = 1;
+                const char *sessionToken = clientKeys[connectionId].newSessionKey();
+                size_t outLen = sizeof(loginResponsePacket.sessionKey);
+
+                rsaEncrypt(loginResponsePacket.sessionKey, &outLen, reinterpret_cast<const uint8_t *>(sessionToken), strlen(sessionToken) + 1, clientKeys[connectionId].getPublicKey());
+
+                memset(buffer, 0, sizeof(buffer));
+                LoginResponsePacket_serialize(buffer, &loginResponsePacket);
+
+                rc = sendto(controlSocket, buffer, LoginResponsePacket_SIZE, 0, reinterpret_cast<const struct sockaddr *>(&sourceAddress), sourceAddressLen);
+                if (rc < 0)
+                {
+                    fprintf(stderr, "sendto() failed [%d]\n", errno);
+                }
+
+                memset(&loginResponsePacket, 0, sizeof(loginResponsePacket));
             }
 
-            memset(salt, 0, sizeof(salt));
-            memset(password, 0, sizeof(password));
+            memset(&loginRequestPacket, 0, sizeof(loginRequestPacket));
+        }
+        else if (packetType == e_RegisterRequest)
+        {
+            RegisterRequestPacket registerRequestPacket;
+            RegisterRequestPacket_deserialize(&registerRequestPacket, buffer);
+
+            if (verbose)
+            {
+                printf("Register request received wuth username=%s\n", registerRequestPacket.username);
+            }
+
+            uint8_t data[256] = {0};
+            size_t dataLen = sizeof(data);
+            bool decrypted = rsaDecrypt(data, &dataLen, registerRequestPacket.data, sizeof(registerRequestPacket.data), NULL);
+
+            if (!decrypted)
+            {
+                if (verbose)
+                {
+                    printf("Decryption failed\n");
+                }
+                continue;
+            }
+
+            const uint32_t connectionId = registerRequestPacket.connectionId;
+            if (clientKeys.find(connectionId) == clientKeys.end())
+            {
+                printf("Invalid connectionId\n");
+                continue;
+            }
+            const char *username = registerRequestPacket.username;
+            const char *password = reinterpret_cast<const char *>(data + 32);
+
+            LoginStatus status = loginSystem.registerUser(username, password);
+
+            if (verbose)
+            {
+                printf("Replying with status %d\n", static_cast<int>(status));
+            }
+            RegisterResponsePacket registerResponsePacket;
+            registerResponsePacket.packetType = e_RegisterResponse;
+            registerResponsePacket.status = static_cast<uint8_t>(status);
+
+            memset(buffer, 0, sizeof(buffer));
+            RegisterResponsePacket_serialize(buffer, &registerResponsePacket);
+
+            rc = sendto(controlSocket, buffer, RegisterResponsePacket_SIZE, 0, reinterpret_cast<const struct sockaddr *>(&sourceAddress), sourceAddressLen);
+            if (rc < 0)
+            {
+                fprintf(stderr, "sendto() failed [%d]\n", errno);
+            }
+        }
+        else if (packetType == e_KeyRequest && rc == KeyRequestPacket_SIZE)
+        {
+
+            KeyRequestPacket keyRequestPacket;
+            KeyRequestPacket_deserialize(&keyRequestPacket, buffer);
+            if (verbose)
+            {
+                printf("Connection id: %d\n", keyRequestPacket.connectionId);
+            }
+            {
+                int idx = sizeof(keyRequestPacket.rsaPublicKey) - 1;
+                bool foundNullCharacter = false;
+                while (idx >= 0)
+                {
+                    if (keyRequestPacket.rsaPublicKey[idx] == '\0')
+                    {
+                        foundNullCharacter = true;
+                        break;
+                    }
+                    else
+                    {
+                        idx -= 1;
+                    }
+                }
+
+                if (!foundNullCharacter)
+                {
+                    if (verbose)
+                    {
+                        printf("Invalid RSA key data\n");
+                        continue;
+                    }
+                }
+            }
+            bool success = clientKeys.find(keyRequestPacket.connectionId) == clientKeys.end();
+
+            if (success)
+            {
+                clientKeys[keyRequestPacket.connectionId] = KeySet(keyRequestPacket.rsaPublicKey, strlen(keyRequestPacket.rsaPublicKey));
+            }
+            // bool success = clientKeys.insert({keyRequestPacket.connectionId, KeySet(keyRequestPacket.rsaPublicKey, strlen(keyRequestPacket.rsaPublicKey))}).second;
+
+            if (verbose)
+            {
+                printf("Key request %s\n", success ? "succeeded" : "failed");
+            }
+
+            KeyResponsePacket keyResponsePacket;
+            memset(&keyResponsePacket, 0, sizeof(keyResponsePacket));
+            keyResponsePacket.packetType = e_KeyResponse;
+            keyResponsePacket.success = success ? 1 : 0;
+
+            char publicKey[512] = {0};
+            size_t len = sizeof(keyResponsePacket.rsaPublicKey);
+            getRSAPublicKey(publicKey, &len);
+            strncpy(keyResponsePacket.rsaPublicKey, publicKey, len);
+
+            KeyResponsePacket_serialize(buffer, &keyResponsePacket);
+            int rc = sendto(controlSocket, buffer, KeyResponsePacket_SIZE, 0, reinterpret_cast<const struct sockaddr *>(&sourceAddress), sourceAddressLen);
+            if (rc < 0)
+            {
+                fprintf(stderr, "sendto() failed [%d]\n", errno);
+            }
         }
     }
 
@@ -212,6 +411,12 @@ void *listenerThread(void *a)
 
 bool start()
 {
+    if (!loginSystem.start())
+    {
+        fprintf(stderr, "Failed to start login system\n");
+        return false;
+    }
+
     if (!initializeSecurity())
     {
         return false;
@@ -283,6 +488,8 @@ bool start()
 
 void stop()
 {
+    loginSystem.stop();
+
     close(controlSocket);
     for (int i = 0; i < numPorts; ++i)
     {
@@ -292,8 +499,6 @@ void stop()
     delete[] dataAddresses;
     delete[] dataSockets;
 
-    pthread_join(commandThreadId, NULL);
-    pthread_join(listenerThreadId, NULL);
     cleanSecurity();
 }
 
@@ -301,15 +506,20 @@ int main(int argc, char *argv[])
 {
     if (!parseArgs(argc, argv))
     {
+        printf("Arg parse failed\n");
         return 1;
     }
 
     if (!start())
     {
+        printf("Start failed\n");
         return 1;
     }
 
     std::cout << "HomeLink server listening on port " << listenerPort << std::endl;
+
+    pthread_join(commandThreadId, NULL);
+    pthread_join(listenerThreadId, NULL);
 
     stop();
 

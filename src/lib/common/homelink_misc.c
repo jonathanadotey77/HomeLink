@@ -77,6 +77,19 @@ int ipv4ToIpv6(const char *ipv4Str, char *ipv6Str)
     return 0;
 }
 
+void getIpv6Str(char *out, const struct in6_addr *address)
+{
+    sprintf(out, "%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
+            (int)address->s6_addr[0], (int)address->s6_addr[1],
+            (int)address->s6_addr[2], (int)address->s6_addr[3],
+            (int)address->s6_addr[4], (int)address->s6_addr[5],
+            (int)address->s6_addr[6], (int)address->s6_addr[7],
+            (int)address->s6_addr[8], (int)address->s6_addr[9],
+            (int)address->s6_addr[10], (int)address->s6_addr[11],
+            (int)address->s6_addr[12], (int)address->s6_addr[13],
+            (int)address->s6_addr[14], (int)address->s6_addr[15]);
+}
+
 struct in6_addr parseIpAddress(const char *addressStr)
 {
     struct in6_addr address;
@@ -118,8 +131,6 @@ struct in6_addr parseIpAddress(const char *addressStr)
 
 void getByteStr(char *dest, const void *src, int n)
 {
-    const uint8_t *p = (const uint8_t *)(src);
-
     const char *hex = "0123456789abcdef";
     char *pout = dest;
     const uint8_t *ptr = (const uint8_t *)(src);

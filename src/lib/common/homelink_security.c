@@ -18,13 +18,13 @@ static const size_t RSA_KEY_SIZE = 2048U;
 static bool randInitialized = false;
 static EVP_PKEY *keypair = NULL;
 
-static void loadRSAPublicKey(EVP_PKEY **key, char *pemKey, size_t len)
-{
-    BIO *bio = BIO_new_mem_buf(pemKey, len);
-    *key = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
+// static void loadRSAPublicKey(EVP_PKEY **key, char *pemKey, size_t len)
+// {
+//     BIO *bio = BIO_new_mem_buf(pemKey, len);
+//     *key = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
 
-    BIO_free(bio);
-}
+//     BIO_free(bio);
+// }
 
 bool initializeSecurity()
 {
@@ -76,7 +76,7 @@ void cleanSecurity()
     ERR_free_strings();
 }
 
-void getRSAPublicKey(char **buffer, size_t *len)
+void getRSAPublicKey(char *buffer, size_t *len)
 {
     BIO *bio = BIO_new(BIO_s_mem());
 
@@ -87,23 +87,21 @@ void getRSAPublicKey(char **buffer, size_t *len)
 
     char *publicKey = NULL;
     *len = BIO_get_mem_data(bio, &publicKey);
-    *buffer = malloc((*len) + 1);
-    memcpy(*buffer, publicKey, *len);
-    (*buffer)[*len] = '\0';
+    memcpy(buffer, publicKey, *len);
+    buffer[*len] = '\0';
 
     BIO_free_all(bio);
 }
 
 void printRSAPublicKey()
 {
-    char *key = NULL;
+    char key[512] = {0};
     size_t len = 0;
 
-    getRSAPublicKey(&key, &len);
+    getRSAPublicKey(key, &len);
 
     printf("Key: %s\n", key);
     printf("Len: %lu\n", len);
-    free(key);
 }
 
 void randomBytes(uint8_t *buffer, int n)
@@ -363,7 +361,7 @@ char *hashPassword(const char *password, size_t passwordLen)
 
     char *hashedPassword = malloc(SHA256_DIGEST_LENGTH * 2 + 1);
 
-    getByteStr(hashedPassword, digest, SHA256_DIGEST_LENGTH * 2);
+    getByteStr(hashedPassword, digest, sizeof(digest));
 
     hashedPassword[SHA256_DIGEST_LENGTH * 2] = '\0';
 

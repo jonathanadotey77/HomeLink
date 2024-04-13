@@ -19,7 +19,7 @@ extern "C"
 
     void cleanSecurity();
 
-    void getRSAPublicKey(char **buffer, size_t *len);
+    void getRSAPublicKey(char *buffer, size_t *len);
 
     void printRSAPublicKey();
 
