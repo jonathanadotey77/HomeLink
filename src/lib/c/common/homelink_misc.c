@@ -4,14 +4,21 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
+static struct in6_addr localIpAddress;
+static volatile bool foundIp = false;
+
 struct in6_addr getIpAddress()
 {
+    if(foundIp) {
+        return localIpAddress;
+    }
     struct ifaddrs *ifAddrStruct = NULL;
     struct ifaddrs *ifa = NULL;
 
@@ -33,9 +40,10 @@ struct in6_addr getIpAddress()
             struct sockaddr_in6 *addr = (struct sockaddr_in6 *)(ifa->ifa_addr);
             if (!IN6_IS_ADDR_LINKLOCAL(&addr->sin6_addr) && !IN6_IS_ADDR_LOOPBACK(&addr->sin6_addr))
             {
-                struct in6_addr ipAddress = addr->sin6_addr;
+                localIpAddress = addr->sin6_addr;
                 freeifaddrs(ifAddrStruct);
-                return ipAddress;
+                foundIp = true;
+                return localIpAddress;
             }
         }
     }

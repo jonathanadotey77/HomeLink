@@ -38,6 +38,8 @@ extern "C"
     char* hashPassword(const char *password, size_t passwordLen);
 
     char* saltedHash(const char* password, size_t passwordLen, const char* salt, size_t saltLen);
+
+    uint16_t randomPort(uint16_t lowerBound, uint16_t upperBound);
     
 #ifdef __cplusplus
 }

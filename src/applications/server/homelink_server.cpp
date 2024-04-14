@@ -284,7 +284,7 @@ void *listenerThread(void *)
                 const char *sessionToken = clientKeys[connectionId].newSessionKey();
                 size_t outLen = sizeof(loginResponsePacket.sessionKey);
 
-                rsaEncrypt(loginResponsePacket.sessionKey, &outLen, reinterpret_cast<const uint8_t *>(sessionToken), strlen(sessionToken), clientKeys[connectionId].getPublicKey());
+                rsaEncrypt(loginResponsePacket.sessionKey, &outLen, reinterpret_cast<const uint8_t *>(sessionToken), strlen(sessionToken)+1, clientKeys[connectionId].getPublicKey());
 
                 memset(buffer, 0, sizeof(buffer));
                 LoginResponsePacket_serialize(buffer, &loginResponsePacket);
@@ -385,13 +385,8 @@ void *listenerThread(void *)
                     }
                 }
             }
-            bool success = clientKeys.find(keyRequestPacket.connectionId) == clientKeys.end();
-
-            if (success)
-            {
-                clientKeys[keyRequestPacket.connectionId] = KeySet(keyRequestPacket.rsaPublicKey, strlen(keyRequestPacket.rsaPublicKey));
-            }
-            // bool success = clientKeys.insert({keyRequestPacket.connectionId, KeySet(keyRequestPacket.rsaPublicKey, strlen(keyRequestPacket.rsaPublicKey))}).second;
+            
+            bool success = clientKeys.insert({keyRequestPacket.connectionId, KeySet(keyRequestPacket.rsaPublicKey, strlen(keyRequestPacket.rsaPublicKey))}).second;
 
             if (verbose)
             {

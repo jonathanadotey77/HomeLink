@@ -26,10 +26,10 @@ KeySet::KeySet(const KeySet& other) {
 KeySet::KeySet(const char *rsaPublicKey, size_t rsaPublicKeyLen)
 {
     this->rsaPublicKey = new char[rsaPublicKeyLen + 1];
+    memset(this->rsaPublicKey, 0, rsaPublicKeyLen + 1);
     this->rsaPublicKeyLen = rsaPublicKeyLen;
     strncpy(this->rsaPublicKey, rsaPublicKey, rsaPublicKeyLen);
 
-    this->rsaPublicKey[this->rsaPublicKeyLen] = '\0';
     this->aesKey = new uint8_t[AES_KEY_LEN / 8];
     this->aesKeyLen = AES_KEY_LEN / 8;
     generateAESKey(aesKey, AES_KEY_LEN);
@@ -90,8 +90,8 @@ void KeySet::copy(const KeySet& other) {
     memcpy(this->aesKey, other.aesKey, this->aesKeyLen);
 
     this->rsaPublicKeyLen = other.rsaPublicKeyLen;
-    this->rsaPublicKey = new char[this->rsaPublicKeyLen];
-    memcpy(this->rsaPublicKey, other.rsaPublicKey, this->rsaPublicKeyLen);
+    this->rsaPublicKey = new char[this->rsaPublicKeyLen+1];
+    memcpy(this->rsaPublicKey, other.rsaPublicKey, this->rsaPublicKeyLen+1);
 
     this->ctx = EVP_CIPHER_CTX_new();
     EVP_CIPHER_CTX_copy(this->ctx, other.ctx);
