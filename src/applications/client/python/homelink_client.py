@@ -138,6 +138,7 @@ def rsaDecrypt(data):
     return cipher.decrypt(data)
 
 def main():
+    pass
 
 if __name__ == "__main__":
     try:
