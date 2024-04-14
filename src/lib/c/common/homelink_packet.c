@@ -131,7 +131,7 @@ void LoginRequestPacket_serialize(uint8_t *buffer, const LoginRequestPacket *pac
     uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->username));
 
     *packetType = packet->packetType;
-    *connectionId = htonl(*connectionId);
+    *connectionId = htonl(packet->connectionId);
     memcpy(username, packet->username, sizeof(packet->username));
     memcpy(data, packet->data, sizeof(packet->data));
 }
@@ -183,7 +183,7 @@ void RegisterRequestPacket_serialize(uint8_t *buffer, const RegisterRequestPacke
     uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->username));
 
     *packetType = packet->packetType;
-    *connectionId = htonl(*connectionId);
+    *connectionId = htonl(packet->connectionId);
     memcpy(username, packet->username, sizeof(packet->username));
     memcpy(data, packet->data, sizeof(packet->data));
 }

@@ -188,7 +188,6 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
 
     uint8_t buffer[1024] = {0};
 
-    KeyRequestPacket_serialize(buffer, &keyRequestPacket);
 
     char username[1024] = {0};
     snprintf(username, sizeof(username), "%s__%s", client->hostId, client->serviceId);
@@ -199,6 +198,7 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
     {
         randomBytes((uint8_t *)&connectionId, sizeof(connectionId));
         keyRequestPacket.connectionId = connectionId;
+        KeyRequestPacket_serialize(buffer, &keyRequestPacket);
         rc = sendto(client->controlSocket, buffer, KeyRequestPacket_SIZE, 0, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress));
         if (rc < 0)
         {
@@ -247,11 +247,9 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
 
         break;
     }
-
     char *hashedPassword = hashPassword(password, strlen(password));
     uint8_t passwordData[128] = {0};
     strncpy((char *)(passwordData) + 32, hashedPassword, strlen(hashedPassword));
-
     while (true)
     {
         RegisterRequestPacket registerRequestPacket;
@@ -260,12 +258,13 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
         randomBytes(passwordData, 32);
         randomBytes(passwordData + 104, 24);
 
-        registerRequestPacket.packetType = e_RegisterRequest;
-        registerRequestPacket.connectionId = connectionId;
         strncpy(registerRequestPacket.username, username, sizeof(registerRequestPacket.username) - 1);
 
         size_t len = sizeof(registerRequestPacket.data);
         rsaEncrypt(registerRequestPacket.data, &len, passwordData, sizeof(passwordData), client->serverPublicKey);
+
+        registerRequestPacket.packetType = e_RegisterRequest;
+        registerRequestPacket.connectionId = connectionId;
 
         memset(buffer, 0, sizeof(buffer));
         RegisterRequestPacket_serialize(buffer, &registerRequestPacket);

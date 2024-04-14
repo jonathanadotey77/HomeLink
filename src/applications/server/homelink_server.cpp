@@ -326,7 +326,7 @@ void *listenerThread(void *)
             const uint32_t connectionId = registerRequestPacket.connectionId;
             if (clientKeys.find(connectionId) == clientKeys.end())
             {
-                printf("Invalid connectionId\n");
+                printf("Invalid connectionId {%u}\n", connectionId);
                 continue;
             }
             const char *username = registerRequestPacket.username;
