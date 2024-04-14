@@ -58,7 +58,7 @@ extern "C"
         uint8_t packetType;
         uint8_t success;
         char rsaPublicKey[512];
-        uint8_t aesKey[32];
+        uint8_t aesKey[256];
     } KeyResponsePacket;
     extern const int32_t KeyResponsePacket_SIZE;
     void KeyResponsePacket_serialize(uint8_t *buffer, const KeyResponsePacket *packet);
