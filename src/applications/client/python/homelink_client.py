@@ -119,28 +119,30 @@ class CommandPacket:
         return CommandPacket(sessionToken, data)
 
 class LoginRequestPacket:
-    def __init__(self, connectionId: int, username: str, data: bytearray):
+    def __init__(self, connectionId: int, hostId: str, serviceId: str, data: bytearray):
         self.packetType = e_LoginRequest
         self.connectionId = connectionId
-        self.username = username
+        self.hostId = hostId
+        self.serviceId = serviceId
         self.data = data
 
     @staticmethod
     def serialize(packet):
         return struct.pack(
-            "!BI33s256s",
+            "!BI33s33s256s",
             packet.packetType,
             packet.connectionId,
-            packet.username.encode("UTF-8"),
+            packet.hostId.encode("UTF-8"),
+            packet.serviceId.encode("UTF-8"),
             packet.data
         )
 
     @staticmethod
     def deserialize(buffer: bytearray):
-        packetType, connectionId, username, data = struct.unpack("!BI33s256s", buffer)
+        packetType, connectionId, hostId, serviceId, data = struct.unpack("!BI33s33s256s", buffer)
         if packetType != e_LoginRequest:
             raise PacketTypeException()
-        return LoginRequestPacket(connectionId, username, data)
+        return LoginRequestPacket(connectionId, hostId, serviceId, data)
 
 class LoginResponsePacket:
     def __init__(self, status: bool, sessionKey: bytearray):
@@ -165,28 +167,30 @@ class LoginResponsePacket:
         return LoginResponsePacket(status, sessionKey)
 
 class RegisterRequestPacket:
-    def __init__(self, connectionId: int, username: str, sessionKey: bytearray):
+    def __init__(self, connectionId: int, hostId: str, serviceId: str, sessionKey: bytearray):
         self.packetType = e_RegisterRequest
         self.connectionId = connectionId
-        self.username = username
+        self.hostId = hostId
+        self.serviceId = serviceId
         self.sessionKey = sessionKey
 
     @staticmethod
     def serialize(packet):
         return struct.pack(
-            "!BI33s256s",
+            "!BI33s33s256s",
             packet.packetType,
             packet.connectionId,
-            packet.username.encode("UTF-8"),
+            packet.hostId.encode("UTF-8"),
+            packet.serviceId.encode("UTF-8"),
             packet.sessionKey
         )
 
     @staticmethod
     def deserialize(buffer: bytearray):
-        packetType, connectionId, username, sessionKey = struct.unpack("!BI33s256s", buffer)
+        packetType, connectionId, hostId, serviceId, sessionKey = struct.unpack("!BI33s33s256s", buffer)
         if packetType != e_RegisterRequest:
             raise PacketTypeException()
-        return RegisterRequestPacket(connectionId, username, sessionKey)
+        return RegisterRequestPacket(connectionId, hostId, serviceId, sessionKey)
 
 
 class RegisterResponsePacket:
@@ -308,7 +312,7 @@ class HomeLinkClient:
         
         while True:
             passwordData = struct.pack("32s65s7s24s", randomBytes(32), hashString(password).encode("UTF-8"), bytes([0] * 8), randomBytes(24))
-            registerRequestPacket = RegisterRequestPacket(connectionId, f"{self.host_id}__{self.serviceId}", rsaEncrypt(passwordData, self.serverPublicKey))
+            registerRequestPacket = RegisterRequestPacket(connectionId, self.host_id, self.serviceId, rsaEncrypt(passwordData, self.serverPublicKey))
             data = RegisterRequestPacket.serialize(registerRequestPacket)
             self.controlSocket.sendto(data, self.serverAddress)
             try:
@@ -325,7 +329,7 @@ class HomeLinkClient:
         while True:
             tag = random.randint(0,4294967295)
             passwordData = struct.pack("!I28s65s7s24s", tag, randomBytes(28), hashString(password).encode("UTF-8"), bytes([0] * 8), randomBytes(24))
-            loginRequestPacket = LoginRequestPacket(connectionId, f"{self.host_id}__{self.serviceId}", rsaEncrypt(passwordData, self.serverPublicKey))
+            loginRequestPacket = LoginRequestPacket(connectionId, self.host_id, self.serviceId, rsaEncrypt(passwordData, self.serverPublicKey))
             data = LoginRequestPacket.serialize(loginRequestPacket)
             self.controlSocket.sendto(data, self.serverAddress)
             try:
@@ -346,7 +350,9 @@ def main():
     initializeSecurity()
     homeLinkClient = HomeLinkClient()
     homeLinkClient.initialize("ERIC")
-    homeLinkClient.login("password7")
+    connectionId = homeLinkClient.login("password7")
+    if not connectionId:
+        print("Login failed")
     homeLinkClient.shutdown()
 
 if __name__ == "__main__":

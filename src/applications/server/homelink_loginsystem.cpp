@@ -47,9 +47,12 @@ bool LoginSystem::start()
     char *error = NULL;
 
     const char *sql = "CREATE TABLE IF NOT EXISTS USERS ("
-                      "username TEXT PRIMARY KEY,"
+                      "hostId TEXT NOT NULL,"
+                      "serviceId TEXT NOT NULL,"
                       "password TEXT NOT NULL,"
-                      "salt TEXT NOT NULL);";
+                      "salt TEXT NOT NULL,"
+                      "PRIMARY KEY (hostId, serviceID)"
+                      ");";
     sqlite3_exec(dbHandle, sql, NULL, NULL, &error);
     if (error)
     {
@@ -66,10 +69,10 @@ void LoginSystem::stop()
     sqlite3_close(dbHandle);
 }
 
-LoginStatus LoginSystem::tryLogin(const char *username, const char *password)
+LoginStatus LoginSystem::tryLogin(const char *hostId, const char *serviceId, const char *password)
 {
     char sql[512] = {0};
-    snprintf(sql, sizeof(sql), "SELECT password, salt FROM USERS WHERE username = '%s';", username);
+    snprintf(sql, sizeof(sql), "SELECT password, salt FROM USERS WHERE hostId = '%s' and serviceId = '%s';", hostId, serviceId);
     LoginStruct loginStruct;
     loginStruct.status = LoginStatus::e_NoSuchUser;
     loginStruct.password = password;
@@ -83,9 +86,9 @@ LoginStatus LoginSystem::tryLogin(const char *username, const char *password)
     return status;
 }
 
-LoginStatus LoginSystem::registerUser(const char *username, const char *password)
+LoginStatus LoginSystem::registerUser(const char *hostId, const char *serviceId, const char *password)
 {
-    LoginStatus rc = this->tryLogin(username, password);
+    LoginStatus rc = this->tryLogin(hostId, serviceId, password);
     if (rc != e_NoSuchUser)
     {
         return LoginStatus::e_UserAlreadyExists;
@@ -95,13 +98,13 @@ LoginStatus LoginSystem::registerUser(const char *username, const char *password
     randomBytes(salt, 16);
     char saltStr[sizeof(salt) * 2 + 1];
     getByteStr(saltStr, salt, sizeof(salt));
-    saltStr[sizeof(saltStr)-1] = '\0';
+    saltStr[sizeof(saltStr) - 1] = '\0';
 
-    char* saltedPassword = saltedHash(password, strlen(password), saltStr, sizeof(saltStr)-1);
+    char *saltedPassword = saltedHash(password, strlen(password), saltStr, sizeof(saltStr) - 1);
 
     char sql[512] = {0};
 
-    snprintf(sql, sizeof(sql), "INSERT INTO USERS (username, password, salt) VALUES ('%s', '%s', '%s')", username, saltedPassword, saltStr);
+    snprintf(sql, sizeof(sql), "INSERT INTO USERS (hostId, serviceId, password, salt) VALUES ('%s', '%s', '%s', '%s')", hostId, serviceId, saltedPassword, saltStr);
     sqlite3_exec(dbHandle, sql, NULL, NULL, NULL);
     memset(sql, 0, sizeof(sql));
     memset(salt, 0, sizeof(salt));
@@ -112,11 +115,12 @@ LoginStatus LoginSystem::registerUser(const char *username, const char *password
     return LoginStatus::e_LoginSuccess;
 }
 
-LoginStatus LoginSystem::changePassword(const char *username,
+LoginStatus LoginSystem::changePassword(const char *hostId,
+                                        const char *serviceId,
                                         const char *oldPassword,
                                         const char *newPassword)
 {
-    LoginStatus rc = this->tryLogin(username, oldPassword);
+    LoginStatus rc = this->tryLogin(hostId, serviceId, oldPassword);
     if (rc == e_LoginFailed || rc == e_NoSuchUser)
     {
         return rc;
@@ -128,11 +132,11 @@ LoginStatus LoginSystem::changePassword(const char *username,
     randomBytes(salt, 16);
     char saltStr[sizeof(salt) * 2 + 1];
     getByteStr(saltStr, salt, sizeof(salt));
-    saltStr[sizeof(saltStr)-1] = '\0';
+    saltStr[sizeof(saltStr) - 1] = '\0';
 
-    char* saltedPassword = saltedHash(newPassword, strlen(newPassword), saltStr, sizeof(saltStr)-1);
+    char *saltedPassword = saltedHash(newPassword, strlen(newPassword), saltStr, sizeof(saltStr) - 1);
 
-    snprintf(sql, sizeof(sql), "UPDATE USERS SET password = '%s', salt = '%s' WHERE username = '%s';", saltedPassword, saltStr, username);
+    snprintf(sql, sizeof(sql), "UPDATE USERS SET password = '%s', salt = '%s' WHERE hostId = '%s' and serviceId = '%s';", saltedPassword, saltStr, hostId, serviceId);
     sqlite3_exec(dbHandle, sql, NULL, NULL, NULL);
     memset(sql, 0, sizeof(sql));
 

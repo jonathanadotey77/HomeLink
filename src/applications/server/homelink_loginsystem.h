@@ -21,11 +21,11 @@ public:
 
     void stop();
 
-    LoginStatus tryLogin(const char *username, const char *password);
+    LoginStatus tryLogin(const char *hostId, const char *serviceId, const char *password);
 
-    LoginStatus registerUser(const char *username, const char *password);
+    LoginStatus registerUser(const char *hostId, const char *serviceId, const char *password);
 
-    LoginStatus changePassword(const char *username,
+    LoginStatus changePassword(const char *hostId, const char *serviceId,
                                const char *oldPassword,
                                const char *newPassword);
 };

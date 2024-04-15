@@ -269,7 +269,7 @@ void *listenerThread(void *)
 
             if (verbose)
             {
-                printf("Login request received with username=%s\n", loginRequestPacket.username);
+                printf("Login request received with {hostId, serviceID} = {%s, %s}\n", loginRequestPacket.hostId, loginRequestPacket.serviceId);
             }
             const uint32_t connectionId = loginRequestPacket.connectionId;
             if (clientKeys.find(connectionId) == clientKeys.end())
@@ -281,16 +281,17 @@ void *listenerThread(void *)
                 continue;
             }
             uint32_t tag = ntohl(*(reinterpret_cast<const uint32_t *>(data)));
-            const char *username = loginRequestPacket.username;
+            const char *hostId = loginRequestPacket.hostId;
+            const char *serviceId = loginRequestPacket.serviceId;
             const char *password = reinterpret_cast<const char *>(data + 32);
 
-            if (clientKeys[connectionId].checkTag(tag) && loginSystem.tryLogin(username, reinterpret_cast<const char *>(password)) == e_LoginSuccess)
+            if (clientKeys[connectionId].checkTag(tag) && loginSystem.tryLogin(hostId, serviceId, reinterpret_cast<const char *>(password)) == e_LoginSuccess)
             {
                 if (verbose)
                 {
                     printf("Login success\n");
                 }
-                
+
                 LoginResponsePacket loginResponsePacket;
                 loginResponsePacket.packetType = e_LoginResponse;
                 loginResponsePacket.status = 1;
@@ -320,7 +321,7 @@ void *listenerThread(void *)
 
             if (verbose)
             {
-                printf("Register request received with username=%s\n", registerRequestPacket.username);
+                printf("Register request received with {hostId, serviceID} = {%s, %s}\n", registerRequestPacket.hostId, registerRequestPacket.serviceId);
             }
 
             uint8_t data[256] = {0};
@@ -342,10 +343,11 @@ void *listenerThread(void *)
                 printf("Invalid connectionId {%u}\n", connectionId);
                 continue;
             }
-            const char *username = registerRequestPacket.username;
+            const char *hostId = registerRequestPacket.hostId;
+            const char* serviceId = registerRequestPacket.serviceId;
             const char *password = reinterpret_cast<const char *>(data + 32);
 
-            LoginStatus status = loginSystem.registerUser(username, password);
+            LoginStatus status = loginSystem.registerUser(hostId, serviceId, password);
 
             if (verbose)
             {

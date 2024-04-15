@@ -52,7 +52,6 @@ extern "C"
     void KeyRequestPacket_serialize(uint8_t *buffer, const KeyRequestPacket *packet);
     void KeyRequestPacket_deserialize(KeyRequestPacket *packet, const uint8_t *buffer);
 
-    // For TCP
     typedef struct KeyResponsePacket
     {
         uint8_t packetType;
@@ -78,7 +77,8 @@ extern "C"
     {
         uint8_t packetType;
         uint32_t connectionId;
-        char username[33];
+        char hostId[33];
+        char serviceId[33];
         uint8_t data[256];
     } LoginRequestPacket;
     extern const int32_t LoginRequestPacket_SIZE;
@@ -99,7 +99,8 @@ extern "C"
     {
         uint8_t packetType;
         uint32_t connectionId;
-        char username[33];
+        char hostId[33];
+        char serviceId[33];
         uint8_t data[256];
     } RegisterRequestPacket;
     extern const int32_t RegisterRequestPacket_SIZE;

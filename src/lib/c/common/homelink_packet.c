@@ -121,18 +121,20 @@ void CommandPacket_deserialize(CommandPacket *packet, const uint8_t *buffer)
     memcpy(packet->data, data, sizeof(packet->data));
 }
 
-const int32_t LoginRequestPacket_SIZE = sizeof(((LoginRequestPacket){0}).packetType) + sizeof(((LoginRequestPacket){0}).connectionId) + sizeof(((LoginRequestPacket){0}).username) + sizeof(((LoginRequestPacket){0}).data);
+const int32_t LoginRequestPacket_SIZE = sizeof(((LoginRequestPacket){0}).packetType) + sizeof(((LoginRequestPacket){0}).connectionId) + sizeof(((LoginRequestPacket){0}).hostId) + sizeof(((LoginRequestPacket){0}).serviceId) + sizeof(((LoginRequestPacket){0}).data);
 
 void LoginRequestPacket_serialize(uint8_t *buffer, const LoginRequestPacket *packet)
 {
     uint8_t *packetType = (uint8_t *)(buffer);
     uint32_t *connectionId = (uint32_t *)(buffer + sizeof(packet->packetType));
-    char *username = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
-    uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->username));
+    char *hostId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
+    char* serviceId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
+    uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId) + sizeof(packet->serviceId));
 
     *packetType = packet->packetType;
     *connectionId = htonl(packet->connectionId);
-    memcpy(username, packet->username, sizeof(packet->username));
+    memcpy(hostId, packet->hostId, sizeof(packet->hostId));
+    memcpy(serviceId, packet->serviceId, sizeof(packet->serviceId));
     memcpy(data, packet->data, sizeof(packet->data));
 }
 
@@ -140,12 +142,14 @@ void LoginRequestPacket_deserialize(LoginRequestPacket *packet, const uint8_t *b
 {
     const uint8_t *packetType = (const uint8_t *)(buffer);
     const uint32_t *connectionId = (const uint32_t *)(buffer + sizeof(packet->packetType));
-    const char *username = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
-    const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->username));
+    const char *hostId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
+    const char* serviceId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
+    const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId) + sizeof(packet->serviceId));
 
     packet->packetType = *packetType;
     packet->connectionId = ntohl(*connectionId);
-    memcpy(packet->username, username, sizeof(packet->username));
+    memcpy(packet->hostId, hostId, sizeof(packet->hostId));
+    memcpy(packet->serviceId, serviceId, sizeof(packet->serviceId));
     memcpy(packet->data, data, sizeof(packet->data));
 }
 
@@ -173,18 +177,20 @@ void LoginResponsePacket_deserialize(LoginResponsePacket *packet, const uint8_t 
     memcpy(packet->sessionKey, sessionKey, sizeof(packet->sessionKey));
 }
 
-const int32_t RegisterRequestPacket_SIZE = sizeof(((RegisterRequestPacket){0}).packetType) + sizeof(((RegisterRequestPacket){0}).connectionId) + sizeof(((RegisterRequestPacket){0}).username) + sizeof(((RegisterRequestPacket){0}).data);
+const int32_t RegisterRequestPacket_SIZE = sizeof(((RegisterRequestPacket){0}).packetType) + sizeof(((RegisterRequestPacket){0}).connectionId) + sizeof(((RegisterRequestPacket){0}).hostId) + sizeof(((RegisterRequestPacket){0}).serviceId) + sizeof(((RegisterRequestPacket){0}).data);
 
 void RegisterRequestPacket_serialize(uint8_t *buffer, const RegisterRequestPacket *packet)
 {
     uint8_t *packetType = (uint8_t *)(buffer);
     uint32_t *connectionId = (uint32_t *)(buffer + sizeof(packet->packetType));
-    char *username = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
-    uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->username));
+    char *hostId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
+    char* serviceId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
+    uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId) + sizeof(packet->serviceId));
 
     *packetType = packet->packetType;
     *connectionId = htonl(packet->connectionId);
-    memcpy(username, packet->username, sizeof(packet->username));
+    memcpy(hostId, packet->hostId, sizeof(packet->hostId));
+    memcpy(serviceId, packet->serviceId, sizeof(packet->serviceId));
     memcpy(data, packet->data, sizeof(packet->data));
 }
 
@@ -192,12 +198,14 @@ void RegisterRequestPacket_deserialize(RegisterRequestPacket *packet, const uint
 {
     const uint8_t *packetType = (const uint8_t *)(buffer);
     const uint32_t *connectionId = (const uint32_t *)(buffer + sizeof(packet->packetType));
-    const char *username = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
-    const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->username));
+    const char *hostId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
+    const char* serviceId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
+    const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId) + sizeof(packet->serviceId));
 
     packet->packetType = *packetType;
     packet->connectionId = ntohl(*connectionId);
-    memcpy(packet->username, username, sizeof(packet->username));
+    memcpy(packet->hostId, hostId, sizeof(packet->hostId));
+    memcpy(packet->serviceId, serviceId, sizeof(packet->serviceId));
     memcpy(packet->data, data, sizeof(packet->data));
 }
 

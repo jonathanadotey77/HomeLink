@@ -122,16 +122,19 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId)
     }
 
     bool bound = false;
-    for(int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 10; ++i)
+    {
         uint16_t port = randomPort(50000, 59999);
         client->controlAddress.sin6_port = htons(port);
-        if(bind(client->controlSocket, (const struct sockaddr*)&client->controlAddress, sizeof(client->controlAddress)) >= 0) {
+        if (bind(client->controlSocket, (const struct sockaddr *)&client->controlAddress, sizeof(client->controlAddress)) >= 0)
+        {
             bound = true;
             break;
         }
     }
 
-    if(!bound) {
+    if (!bound)
+    {
         fprintf(stderr, "Could not bind to port\n");
         close(client->controlSocket);
         return false;
@@ -146,16 +149,19 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId)
         return false;
     }
 
-    for(int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 10; ++i)
+    {
         uint16_t port = randomPort(50000, 59999);
         client->dataAddress.sin6_port = htons(port);
-        if(bind(client->dataSocket, (const struct sockaddr*)&client->dataAddress, sizeof(client->dataAddress)) >= 0) {
+        if (bind(client->dataSocket, (const struct sockaddr *)&client->dataAddress, sizeof(client->dataAddress)) >= 0)
+        {
             bound = true;
             break;
         }
     }
 
-    if(!bound) {
+    if (!bound)
+    {
         fprintf(stderr, "Could not bind to port\n");
         close(client->controlSocket);
         close(client->dataSocket);
@@ -189,7 +195,6 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
     memcpy(keyRequestPacket.rsaPublicKey, client->clientPublicKey, sizeof(keyRequestPacket.rsaPublicKey));
 
     uint8_t buffer[1024] = {0};
-
 
     char username[1024] = {0};
     snprintf(username, sizeof(username), "%s__%s", client->hostId, client->serviceId);
@@ -260,7 +265,8 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
         randomBytes(passwordData, 32);
         randomBytes(passwordData + 104, 24);
 
-        strncpy(registerRequestPacket.username, username, sizeof(registerRequestPacket.username) - 1);
+        strncpy(registerRequestPacket.hostId, client->hostId, sizeof(registerRequestPacket.hostId) - 1);
+        strncpy(registerRequestPacket.serviceId, client->serviceId, sizeof(registerRequestPacket.serviceId) - 1);
 
         size_t len = sizeof(registerRequestPacket.data);
         rsaEncrypt(registerRequestPacket.data, &len, passwordData, sizeof(passwordData), client->serverPublicKey);
@@ -337,7 +343,8 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
 
         loginRequestPacket.packetType = e_LoginRequest;
         loginRequestPacket.connectionId = connectionId;
-        strncpy(loginRequestPacket.username, username, strlen(username));
+        strncpy(loginRequestPacket.hostId, client->hostId, sizeof(loginRequestPacket.hostId) - 1);
+        strncpy(loginRequestPacket.serviceId, client->serviceId, sizeof(loginRequestPacket.serviceId) - 1);
 
         uint32_t tag = 0;
         randomBytes((uint8_t *)&tag, sizeof(tag));
