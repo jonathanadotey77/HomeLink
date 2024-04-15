@@ -23,11 +23,14 @@ extern "C"
         char hostId[33];
         char serviceId[33];
         uint32_t connectionId;
+        char sessionKey[256];
     } HomeLinkClient;
 
     bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId);
 
     bool HomeLinkClient__login(HomeLinkClient *client, const char *password);
+
+    void HomeLinkClient__logout(HomeLinkClient *client);
 
 #ifdef __cplusplus
 }

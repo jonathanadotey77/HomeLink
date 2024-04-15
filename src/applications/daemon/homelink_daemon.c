@@ -15,8 +15,7 @@ HomeLinkClient client;
 
 void shutdownDaemon()
 {
-    close(client.controlSocket);
-    close(client.dataSocket);
+    HomeLinkClient__logout(&client);
 }
 
 void run() {

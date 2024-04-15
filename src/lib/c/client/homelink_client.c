@@ -15,9 +15,7 @@
 
 bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId)
 {
-    memset(client->hostId, 0, sizeof(client->hostId));
-    memset(&client->serverAddress, 0, sizeof(client->serverAddress));
-    memset(&client->serverAddressStr, 0, sizeof(client->serverAddressStr));
+    memset(client, 0, sizeof(HomeLinkClient));
     client->serverPort = 0;
     const char *configFilePath = getenv("HOMELINK_CONFIG_PATH");
 
@@ -415,6 +413,8 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
         }
         else if (status == e_LoginSuccess)
         {
+            size_t len = sizeof(client->sessionKey);
+            rsaDecrypt((uint8_t *)client->sessionKey, &len, loginResponsePacket.sessionKey, sizeof(loginResponsePacket.sessionKey), NULL);
             break;
         }
         else
@@ -432,4 +432,20 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
     client->connectionId = connectionId;
 
     return true;
+}
+
+void HomeLinkClient__logout(HomeLinkClient *client)
+{
+    uint8_t buffer[1024] = {0};
+    LogoutPacket logoutPacket;
+    memset(&logoutPacket, 0, sizeof(logoutPacket));
+    logoutPacket.packetType = e_Logout;
+    logoutPacket.connectionId = client->connectionId;
+    size_t len = sizeof(logoutPacket.sessionKey);
+    rsaEncrypt(logoutPacket.sessionKey, &len, (uint8_t *)client->sessionKey, strlen(client->sessionKey) + 1, client->serverPublicKey);
+
+    LogoutPacket_serialize(buffer, &logoutPacket);
+    sendto(client->controlSocket, buffer, LogoutPacket__SIZE, 0, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress));
+    close(client->controlSocket);
+    close(client->dataSocket);
 }

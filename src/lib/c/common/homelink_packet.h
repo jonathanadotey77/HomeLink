@@ -19,7 +19,8 @@ extern "C"
         e_LoginRequest = 5,
         e_LoginResponse = 6,
         e_RegisterRequest = 7,
-        e_RegisterResponse = 8
+        e_RegisterResponse = 8,
+        e_Logout = 9
     };
 
     // UDP localhost only
@@ -115,6 +116,16 @@ extern "C"
     extern const int32_t RegisterResponsePacket_SIZE;
     void RegisterResponsePacket_serialize(uint8_t *buffer, const RegisterResponsePacket *packet);
     void RegisterResponsePacket_deserialize(RegisterResponsePacket *packet, const uint8_t *buffer);
+
+    typedef struct LogoutPacket {
+        uint8_t packetType;
+        uint32_t connectionId;
+        uint8_t sessionKey[256];
+    } LogoutPacket;
+    extern const int32_t LogoutPacket__SIZE;
+    void LogoutPacket_serialize(uint8_t *buffer, const LogoutPacket *packet);
+    void LogoutPacket_deserialize(LogoutPacket *packet, const uint8_t *buffer);
+
 
 #ifdef __cplusplus
 }

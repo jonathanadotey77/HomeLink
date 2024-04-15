@@ -344,7 +344,7 @@ void *listenerThread(void *)
                 continue;
             }
             const char *hostId = registerRequestPacket.hostId;
-            const char* serviceId = registerRequestPacket.serviceId;
+            const char *serviceId = registerRequestPacket.serviceId;
             const char *password = reinterpret_cast<const char *>(data + 32);
 
             LoginStatus status = loginSystem.registerUser(hostId, serviceId, password);
@@ -424,6 +424,46 @@ void *listenerThread(void *)
             {
                 fprintf(stderr, "sendto() failed [%d]\n", errno);
             }
+        }
+        else if (packetType == e_Logout)
+        {
+            LogoutPacket logoutPacket;
+            LogoutPacket_deserialize(&logoutPacket, buffer);
+
+            if (verbose)
+            {
+                printf("Logout packet received {%u}\n", logoutPacket.connectionId);
+            }
+
+            char sessionKey[256];
+            memset(sessionKey, 0, sizeof(sessionKey));
+            size_t len = sizeof(sessionKey);
+            if (rsaDecrypt(reinterpret_cast<uint8_t *>(sessionKey), &len, logoutPacket.sessionKey, sizeof(logoutPacket.sessionKey), NULL))
+            {
+                if (clientKeys.find(logoutPacket.connectionId) == clientKeys.end())
+                {
+                    if (verbose)
+                    {
+                        printf("Connection ID not found\n");
+                    }
+                }
+                else if (clientKeys[logoutPacket.connectionId].validSessionKey(sessionKey))
+                {
+                    if (verbose)
+                    {
+                        printf("Logout successful\n");
+                    }
+                    clientKeys.erase(logoutPacket.connectionId);
+                }
+            }
+            else
+            {
+                if (verbose)
+                {
+                    printf("Could not decrypt session key\n");
+                }
+            }
+            memset(&logoutPacket, 0, sizeof(logoutPacket));
         }
     }
 
