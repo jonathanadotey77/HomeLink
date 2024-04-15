@@ -149,7 +149,7 @@ void LoginRequestPacket_deserialize(LoginRequestPacket *packet, const uint8_t *b
     memcpy(packet->data, data, sizeof(packet->data));
 }
 
-const int32_t LoginResponsePacket_SIZE = sizeof(((LoginResponsePacket){0}).packetType) + sizeof(((LoginResponsePacket){0}).sessionKey);
+const int32_t LoginResponsePacket_SIZE = sizeof(((LoginResponsePacket){0}).packetType) + sizeof(((LoginResponsePacket){0}).packetType) + sizeof(((LoginResponsePacket){0}).sessionKey);
 
 void LoginResponsePacket_serialize(uint8_t *buffer, const LoginResponsePacket *packet)
 {

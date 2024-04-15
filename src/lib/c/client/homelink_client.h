@@ -22,6 +22,7 @@ extern "C"
         char clientPublicKey[512];
         char hostId[33];
         char serviceId[33];
+        uint32_t connectionId;
     } HomeLinkClient;
 
     bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId);

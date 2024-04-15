@@ -32,7 +32,6 @@ struct sockaddr_in6 listenerAddress;
 struct sockaddr_in6 commandAddress;
 struct sockaddr_in6 *dataAddresses;
 
-
 pthread_t listenerThreadId = 0;
 pthread_t commandThreadId = 0;
 
@@ -267,9 +266,18 @@ void *listenerThread(void *)
             uint8_t data[256] = {0};
             size_t dataLen = sizeof(data);
             rsaDecrypt(data, &dataLen, loginRequestPacket.data, sizeof(loginRequestPacket.data), NULL);
+
+            if (verbose)
+            {
+                printf("Login request received with username=%s\n", loginRequestPacket.username);
+            }
             const uint32_t connectionId = loginRequestPacket.connectionId;
             if (clientKeys.find(connectionId) == clientKeys.end())
             {
+                if (verbose)
+                {
+                    printf("Invalid connectionId {%u}\n", connectionId);
+                }
                 continue;
             }
             uint32_t tag = ntohl(*(reinterpret_cast<const uint32_t *>(data)));
@@ -278,13 +286,18 @@ void *listenerThread(void *)
 
             if (clientKeys[connectionId].checkTag(tag) && loginSystem.tryLogin(username, reinterpret_cast<const char *>(password)) == e_LoginSuccess)
             {
+                if (verbose)
+                {
+                    printf("Login success\n");
+                }
+                
                 LoginResponsePacket loginResponsePacket;
                 loginResponsePacket.packetType = e_LoginResponse;
                 loginResponsePacket.status = 1;
                 const char *sessionToken = clientKeys[connectionId].newSessionKey();
                 size_t outLen = sizeof(loginResponsePacket.sessionKey);
 
-                rsaEncrypt(loginResponsePacket.sessionKey, &outLen, reinterpret_cast<const uint8_t *>(sessionToken), strlen(sessionToken)+1, clientKeys[connectionId].getPublicKey());
+                rsaEncrypt(loginResponsePacket.sessionKey, &outLen, reinterpret_cast<const uint8_t *>(sessionToken), strlen(sessionToken) + 1, clientKeys[connectionId].getPublicKey());
 
                 memset(buffer, 0, sizeof(buffer));
                 LoginResponsePacket_serialize(buffer, &loginResponsePacket);
@@ -307,7 +320,7 @@ void *listenerThread(void *)
 
             if (verbose)
             {
-                printf("Register request received wuth username=%s\n", registerRequestPacket.username);
+                printf("Register request received with username=%s\n", registerRequestPacket.username);
             }
 
             uint8_t data[256] = {0};
@@ -385,7 +398,7 @@ void *listenerThread(void *)
                     }
                 }
             }
-            
+
             bool success = clientKeys.insert({keyRequestPacket.connectionId, KeySet(keyRequestPacket.rsaPublicKey, strlen(keyRequestPacket.rsaPublicKey))}).second;
 
             if (verbose)

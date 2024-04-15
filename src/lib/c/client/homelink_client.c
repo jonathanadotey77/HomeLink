@@ -164,6 +164,8 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId)
 
     strncpy(client->serviceId, serviceId, sizeof(client->serviceId));
 
+    client->connectionId = 0;
+
     return true;
 }
 
@@ -419,6 +421,8 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
 
     memset(hashedPassword, 0, strlen(hashedPassword));
     free(hashedPassword);
+
+    client->connectionId = connectionId;
 
     return true;
 }
