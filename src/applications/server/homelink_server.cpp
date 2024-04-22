@@ -649,7 +649,7 @@ void *clientThread(void *a)
         const std::string &command = tokens[0];
 
         if(verbose) {
-            printf("Recevied command: %s\n", commandStr);
+            printf("Recevied command: %s\n", commandStr + 32);
         }
 
         if (command == "READ_FILE")
