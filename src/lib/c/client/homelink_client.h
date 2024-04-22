@@ -12,7 +12,6 @@ extern "C"
     typedef struct HomeLinkClient
     {
         int controlSocket;
-        int dataSocket;
         char serverControlAddressStr[64];
         struct sockaddr_in6 serverControlAddress;
         struct sockaddr_in6 serverDataAddress;

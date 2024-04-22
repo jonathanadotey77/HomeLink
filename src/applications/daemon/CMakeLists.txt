@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.24)
-
 find_library(homelink_common HINTS ${CMAKE_BINARY_DIR})
 
 add_executable(homelink_daemon homelink_daemon.c)

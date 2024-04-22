@@ -4,14 +4,21 @@
 #include <homelink_packet.h>
 #include <homelink_security.h>
 
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 const char *serviceId = "DAEMON";
 const char *daemonPassword = "PASSWORD717171717171717";
-
+char daemonDirectory[256] = {0};
 HomeLinkClient client;
+
+volatile bool stopped = false;
+
+void shutdownHandler(int) {
+    stopped = true;
+}
 
 void shutdownDaemon()
 {
@@ -19,16 +26,23 @@ void shutdownDaemon()
 }
 
 void run() {
-    printf("Login success\n");
+    while(!stopped) {
+        char* filename = HomeLinkClient__readFile(&client, daemonDirectory);
+        if(filename == NULL) {
+            printf("File read error\n");
+            sleep(5);
+            continue;
+        }
 
-    HomeLinkClient__writeFile(&client, client.hostId, serviceId, "t.txt", "t1.txt");
-    char* filename = HomeLinkClient__readFile(&client, NULL);
+        if(strlen(filename) > 0) {
+            printf("Received file: %s\n", filename);
+        } else {
+            printf("File queue is empty\n");
+            sleep(5);
+        }
 
-    if(filename != NULL) {
-        printf("Read file\n");
         free(filename);
     }
-    printf("Done\n");
 }
 
 int main()
@@ -38,7 +52,22 @@ int main()
         return false;
     }
 
+    signal(SIGINT, shutdownHandler);
+    signal(SIGTSTP, shutdownHandler);
+
     memset(&client, 0, sizeof(client));
+
+    char* dir = getenv("HOMELINK_DAEMON_FILES");
+    if(dir == NULL) {
+        fprintf(stderr, "Environment variable HOMELINK_DAEMON_FILES is empty or not set\n");
+        return 1;
+    }
+    strncpy(daemonDirectory, dir, sizeof(daemonDirectory)-2);
+    if(strlen(daemonDirectory) == 0) {
+        fprintf(stderr, "Environment variable HOMELINK_DAEMON_FILES is empty or not set\n");
+        return 1;
+    }
+    daemonDirectory[strlen(daemonDirectory)] = '/';
 
     if (!HomeLinkClient__initialize(&client, "DAEMON"))
     {
