@@ -10,7 +10,7 @@ public:
     FileQueue();
 
     std::string nextFile(const std::string &hostId, const std::string &serviceId);
-    void pullFile(const std::string &hostId, const std::string &serviceId, const std::string &filePath);
+    void pullFile(const std::string &filePath);
     bool pushFile(const std::string &hostId, const std::string &serviceId, const std::string &path);
 };
 

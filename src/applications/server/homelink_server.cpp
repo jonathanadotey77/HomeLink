@@ -683,7 +683,7 @@ void *clientThread(void *a)
                 if(verbose) {
                     printf("Clearing %s from file queue {%s | %s}", tempFilename.c_str(), hostId.c_str(), serviceId.c_str());
                 }
-                fileQueue.pullFile(hostId, serviceId, tempFilePath);
+                fileQueue.pullFile(tempFilePath);
             } else {
                 if(verbose) {
                     printf("Failed to send file\n");

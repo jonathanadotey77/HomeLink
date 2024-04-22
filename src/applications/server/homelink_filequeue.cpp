@@ -80,7 +80,7 @@ std::string FileQueue::nextFile(const std::string &hostId, const std::string &se
     return ans;
 }
 
-void FileQueue::pullFile(const std::string &hostId, const std::string &serviceId, const std::string &filePath)
+void FileQueue::pullFile(const std::string &filePath)
 {
     fs::remove(filePath);
 }
