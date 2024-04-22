@@ -15,7 +15,7 @@ extern "C"
 
     bool sendFile(int sd, const char *filePath, const char* filename, const uint8_t* aesKey);
 
-    bool recvFile(int sd, const char *prefix, const uint8_t* aesKey, bool collapse);
+    char* recvFile(int sd, const char *prefix, const uint8_t* aesKey, bool collapse);
 
 #ifdef __cplusplus
 }

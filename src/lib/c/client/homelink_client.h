@@ -35,7 +35,7 @@ extern "C"
 
     void HomeLinkClient__logout(HomeLinkClient *client);
 
-    bool HomeLinkClient__readFile(HomeLinkClient* client, const char* directory);
+    char* HomeLinkClient__readFile(HomeLinkClient* client, const char* directory);
 
     bool HomeLinkClient__writeFile(HomeLinkClient* client, const char* destinationHostId, const char* destinationServiceId, const char* localPath, const char* remotePath);
 

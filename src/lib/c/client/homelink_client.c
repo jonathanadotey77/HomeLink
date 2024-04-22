@@ -482,7 +482,7 @@ void HomeLinkClient__logout(HomeLinkClient *client)
     close(client->dataSocket);
 }
 
-bool HomeLinkClient__readFile(HomeLinkClient *client, const char* directory)
+char* HomeLinkClient__readFile(HomeLinkClient *client, const char* directory)
 {
 
     if (connect(client->dataSocket, (const struct sockaddr *)&client->serverDataAddress, sizeof(client->serverDataAddress)) < 0)
@@ -492,7 +492,19 @@ bool HomeLinkClient__readFile(HomeLinkClient *client, const char* directory)
 
     HomeLinkClient__sendCommand(client, "READ_FILE");
 
-    bool status = recvFile(client->dataSocket, directory == NULL ? "" : directory, client->aesKey, false);
+    uint8_t buffer[1] = {0};
+    bool status = recvBufferTcp(client->dataSocket, buffer, 1);
+    if(!status) {
+        fprintf(stderr, "recvBufferTcp() failed\n");
+        return NULL;
+    }
+
+    if(buffer[0] == 0) {
+        // No file, return empty string
+        return (char*)calloc(1, 1);
+    }
+
+    char* filePath = recvFile(client->dataSocket, directory == NULL ? "" : directory, client->aesKey, false);
 
     close(client->dataSocket);
     client->dataSocket = socket(AF_INET6, SOCK_STREAM, 0);
@@ -503,7 +515,7 @@ bool HomeLinkClient__readFile(HomeLinkClient *client, const char* directory)
         exit(1);
     }
 
-    return status;
+    return filePath;
 }
 
 bool HomeLinkClient__writeFile(HomeLinkClient* client, const char* destinationHostId, const char* destinationServiceId, const char* localPath, const char* remotePath) {

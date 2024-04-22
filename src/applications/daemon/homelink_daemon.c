@@ -22,7 +22,12 @@ void run() {
     printf("Login success\n");
 
     HomeLinkClient__writeFile(&client, client.hostId, serviceId, "t.txt", "t1.txt");
-    HomeLinkClient__readFile(&client, NULL);
+    char* filename = HomeLinkClient__readFile(&client, NULL);
+
+    if(filename != NULL) {
+        printf("Read file\n");
+        free(filename);
+    }
     printf("Done\n");
 }
 

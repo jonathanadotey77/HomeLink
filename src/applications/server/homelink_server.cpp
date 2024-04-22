@@ -574,7 +574,6 @@ void *clientThread(void *a)
 
     uint8_t commandBuffer[CommandPacket_SIZE];
     const size_t commandBufferLen = sizeof(commandBuffer);
-    size_t n = 0;
     uint8_t* aesKey = NULL;
 
     CommandPacket commandPacket;
@@ -748,15 +747,16 @@ void *clientThread(void *a)
             }
 
             fs::create_directories(tempFileFolder);
-            bool status = recvFile(sd, tempFilePrefix.c_str(), aesKey, true);
+            char* filename = recvFile(sd, tempFilePrefix.c_str(), aesKey, true);
 
-            if (status)
+            if (filename != NULL)
             {
                 if(verbose) {
-                    printf("File received successfully\n");
+                    printf("File '%s' received successfully\n", filename);
                 }
 
                 fileQueue.pushFile(destinationHostId, destinationServiceId, tempFilePath);
+                delete[] filename;
             } else {
                 if(verbose) {
                     printf("Failed to received file\n");

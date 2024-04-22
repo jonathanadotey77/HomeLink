@@ -155,7 +155,7 @@ bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t 
     return true;
 }
 
-bool recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
+char* recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
 {
     uint8_t sendBuffer[17] = {0};
     uint8_t *iv = sendBuffer + 1;
@@ -168,7 +168,7 @@ bool recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
     if (!status)
     {
         fprintf(stderr, "Could not fetch file info\n");
-        return false;
+        return NULL;
     }
 
     int len = sizeof(fileInfo) - 1;
@@ -176,7 +176,7 @@ bool recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
     if (!status)
     {
         fprintf(stderr, "aesDecrypt() failed\n");
-        return false;
+        return NULL;
     }
 
     // Parse filaneme and fileSize
@@ -205,7 +205,7 @@ bool recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
     if (!status || strlen(filename) == 0)
     {
         fprintf(stderr, "Invalid file info\n");
-        return false;
+        return NULL;
     }
 
     // Send the first ACK
@@ -216,17 +216,18 @@ bool recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
     if (!status)
     {
         fprintf(stderr, "Could not send first ACK\n");
-        return false;
+        return NULL;
     }
 
-    char filePath[256] = {0};
-    snprintf(filePath, sizeof(filePath)-1, "%s%s", prefix, filename);
+    char* filePath = (char*)calloc(256, 1);
+    snprintf(filePath, 255, "%s%s", prefix, filename);
 
     FILE *fp = fopen(filePath, "wb");
     if (!fp)
     {
         fprintf(stderr, "fopen() failed\n");
-        return false;
+        free(filePath);
+        return NULL;
     }
 
     uint64_t bytesReceived = 0;
@@ -275,15 +276,15 @@ bool recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
     fclose(fp);
 
     memset(fileInfo, 0, sizeof(fileInfo));
-    memset(filePath, 0, sizeof(filePath));
     memset(sendBuffer, 0, sizeof(sendBuffer));
     memset(recvBuffer, 0, sizeof(recvBuffer));
 
     if (bytesReceived < fileSize)
     {
         remove(filename);
-        return false;
+        free(filePath);
+        return NULL;
     }
 
-    return true;
+    return filePath;
 }
