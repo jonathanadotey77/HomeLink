@@ -332,8 +332,13 @@ class HomeLinkClient:
         self.serverUdpAddress = tuple(self.serverUdpAddress)
         self.controlSocket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
         self.dataSocket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-        self.controlAddress = ("::0.0.0.0", 13000)
-        self.dataAddress = ("::0.0.0.0", 13001)
+        
+        self.dataSocket.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+        self.dataSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.dataSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        
+        self.controlAddress = ("::0.0.0.0", random.randint(50000, 59999))
+        self.dataAddress = ("::0.0.0.0", random.randint(50000, 59999))
         self.controlSocket.bind(self.controlAddress)
         self.dataSocket.bind(self.dataAddress)
         self.controlSocket.settimeout(3)
