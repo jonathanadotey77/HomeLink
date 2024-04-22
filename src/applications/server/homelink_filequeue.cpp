@@ -55,7 +55,7 @@ static std::vector<std::string> splitString(const std::string &s, char delim)
 
 FileQueue::FileQueue()
 {
-    fs::create_directory(std::string(getenv("HOMELINK_ROOT")) + "/temp");
+    fs::create_directories(std::string(getenv("HOMELINK_ROOT")) + "/temp_files");
 }
 
 std::string FileQueue::nextFile(const std::string &hostId, const std::string &serviceId)
