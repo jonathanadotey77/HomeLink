@@ -1,5 +1,5 @@
 from Crypto import Random
-from Crypto.Cipher import PKCS1_OAEP
+from Crypto.Cipher import PKCS1_OAEP, AES
 from Crypto.Hash import SHA256
 from Crypto.PublicKey import RSA
 import ipaddress
@@ -9,6 +9,8 @@ import socket
 import struct
 
 RSA_KEY_SIZE = 2048
+
+FILE_BLOCK_SIZE = 8192
 
 keypair = None
 
@@ -28,6 +30,11 @@ e_LoginRequest = 5
 e_LoginResponse = 6
 e_RegisterRequest = 7
 e_RegisterResponse = 8
+e_Logout = 9
+
+e_Empty = 0
+e_Available = 1
+e_NoPort = 2
 
 
 class PacketTypeException(Exception):
@@ -97,26 +104,28 @@ class KeyResponsePacket:
         return KeyResponsePacket(success == 1, rsaPublicKey.decode("utf-8"), aesKey)
 
 class CommandPacket:
-    def __init__(self, sessionToken: bytearray, data: bytearray):
+    def __init__(self, connectionId: int, sessionToken: bytearray, data: bytearray):
         self.packetType = e_Command
+        self.connectionId = connectionId
         self.sessionToken = sessionToken
         self.data = data
 
     @staticmethod
     def serialize(packet):
         return struct.pack(
-            "!B256s256s",
+            "!BI256s256s",
             packet.packetType,
+            packet.connectionId,
             packet.sessionToken,
             packet.data
         )
 
     @staticmethod
     def deserialize(buffer: bytearray):
-        packetType, sessionToken, data = struct.unpack("!B256s256s", buffer)
-        if packetType != e_KeyRequest:
+        packetType, connectionId, sessionToken, data = struct.unpack("!BI256s256s", buffer)
+        if packetType != e_Command:
             raise PacketTypeException()
-        return CommandPacket(sessionToken, data)
+        return CommandPacket(connectionId, sessionToken, data)
 
 class LoginRequestPacket:
     def __init__(self, connectionId: int, hostId: str, serviceId: str, data: bytearray):
@@ -213,8 +222,31 @@ class RegisterResponsePacket:
             raise PacketTypeException()
         return RegisterResponsePacket(status)
 
+class LogoutPacket:
+    def __init__(self, connectionId: int, sessionKey: bytearray):
+        self.packetType = e_Logout
+        self.connectionId = connectionId
+        self.sessionKey = sessionKey
+    
+    @staticmethod
+    def serialize(packet):
+        return struct.pack(
+            "!BI256s",
+            packet.packetType,
+            packet.connectionId,
+            packet.sessionToken
+        )
+
+    @staticmethod
+    def deserialize(buffer: bytearray):
+        packetType, connectionId, sessionToken = struct.unpack("!BI256s", buffer)
+        if packetType != e_Logout:
+            raise PacketTypeException()
+        return LogoutPacket(connectionId, sessionToken)
+
+
 def randomBytes(n: int):
-    return Random.get_random_bytes(n)
+    return bytearray(Random.get_random_bytes(n))
 
 
 def initializeSecurity():
@@ -234,13 +266,29 @@ def rsaEncrypt(data, key):
     pubkey = RSA.importKey(key)
     cipher = PKCS1_OAEP.new(pubkey)
 
-    return cipher.encrypt(data)
+    return bytearray(cipher.encrypt(data))
 
 
 def rsaDecrypt(data, key):
     cipher = PKCS1_OAEP.new(keypair if key == None else key)
+    
+    return bytearray(cipher.decrypt(data))
 
-    return cipher.decrypt(data)
+def aesEncrypt(data, key, iv):
+    cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+    
+    temp = cipher.encrypt_and_digest(data)
+    temp = (bytearray(temp[0]), bytearray(temp[1]))
+    
+    return temp
+
+def aesDecrypt(data, key, iv, tag):
+    cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+    
+    temp = cipher.decrypt_and_verify(data, tag)
+    temp = (bytearray(temp[0]), bytearray(temp[1]))
+
+    return temp
 
 def hashString(string: str):
     hash_object = SHA256.new(data=string.encode())
@@ -252,7 +300,8 @@ class HomeLinkClient:
     def __init__(self):
         self.controlSocket = None
         self.dataSocket = None
-        self.serverAddress = [None, None]
+        self.serverUdpAddress = [None, None]
+        self.serverTcpAddress = [None, None]
         self.controlAddress = [None, None]
         self.dataAddress = [None, None]
         self.serverPort = None
@@ -261,6 +310,7 @@ class HomeLinkClient:
         self.hostId = None
         self.serviceId = None
         self.connectionId = None
+        self.aesKey = None
         
     def initialize(self, serviceId):
         self.serviceId = serviceId
@@ -270,12 +320,16 @@ class HomeLinkClient:
                 key, value = line.split()
                 if key == "host_id":
                     self.host_id = value
-                elif key == "server_port":
-                    self.serverAddress[1] = int(value)
+                elif key == "server_control_port":
+                    self.serverUdpAddress[1] = int(value)
+                elif key == "server_data_port":
+                    self.serverTcpAddress[1] = int(value)
                 elif key == "server_address":
-                    self.serverAddress[0] = str(ipaddress.IPv6Address(f"::ffff:{value}"))
+                    self.serverUdpAddress[0] = str(ipaddress.IPv6Address(f"::ffff:{value}"))
+                    self.serverTcpAddress[0] = str(ipaddress.IPv6Address(f"::ffff:{value}"))
 
-        self.serverAddress = tuple(self.serverAddress)
+        self.serverTcpAddress = tuple(self.serverTcpAddress)
+        self.serverUdpAddress = tuple(self.serverUdpAddress)
         self.controlSocket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
         self.dataSocket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
         self.controlAddress = ("::0.0.0.0", 13000)
@@ -284,7 +338,7 @@ class HomeLinkClient:
         self.dataSocket.bind(self.dataAddress)
         self.controlSocket.settimeout(3)
         self.dataSocket.settimeout(3)
-        self.controlSocket.connect(tuple(self.serverAddress))
+        self.controlSocket.connect(tuple(self.serverUdpAddress))
         self.clientPublicKey = getRSAPublicKey()
     
     def shutdown(self):
@@ -297,7 +351,7 @@ class HomeLinkClient:
             connectionId = random.randint(0,4294967295)
             keyRequestPacket = KeyRequestPacket(connectionId, self.clientPublicKey)
             data = KeyRequestPacket.serialize(keyRequestPacket)
-            self.controlSocket.sendto(data, self.serverAddress)
+            self.controlSocket.sendto(data, self.serverUdpAddress)
             try:
                 data, _ = self.controlSocket.recvfrom(1024)
             except socket.timeout:
@@ -308,13 +362,14 @@ class HomeLinkClient:
             if keyResponsePacket.success == 0:
                 continue
             else:
+                self.aesKey = rsaDecrypt(keyResponsePacket.aesKey, None)
                 break
         
         while True:
             passwordData = struct.pack("32s65s7s24s", randomBytes(32), hashString(password).encode("UTF-8"), bytes([0] * 8), randomBytes(24))
             registerRequestPacket = RegisterRequestPacket(connectionId, self.host_id, self.serviceId, rsaEncrypt(passwordData, self.serverPublicKey))
             data = RegisterRequestPacket.serialize(registerRequestPacket)
-            self.controlSocket.sendto(data, self.serverAddress)
+            self.controlSocket.sendto(data, self.serverUdpAddress)
             try:
                 data, _ = self.controlSocket.recvfrom(1024)
             except socket.timeout:
@@ -331,7 +386,7 @@ class HomeLinkClient:
             passwordData = struct.pack("!I28s65s7s24s", tag, randomBytes(28), hashString(password).encode("UTF-8"), bytes([0] * 8), randomBytes(24))
             loginRequestPacket = LoginRequestPacket(connectionId, self.host_id, self.serviceId, rsaEncrypt(passwordData, self.serverPublicKey))
             data = LoginRequestPacket.serialize(loginRequestPacket)
-            self.controlSocket.sendto(data, self.serverAddress)
+            self.controlSocket.sendto(data, self.serverUdpAddress)
             try:
                 data, _ = self.controlSocket.recvfrom(1024)
             except socket.timeout:
@@ -339,12 +394,105 @@ class HomeLinkClient:
             
             loginResponsePacket = LoginResponsePacket.deserialize(data)
             if loginResponsePacket.status == e_LoginSuccess:
+                self.sessionToken = rsaDecrypt(loginResponsePacket.sessionKey, None).decode('UTF-8')
                 break
             else:
                 return None
         
         self.connectionId = connectionId
         return connectionId
+    
+    def sendBufferTcp(self, buffer: bytearray):
+        bytesSent = 0
+        
+        for _ in range(10):
+            if bytesSent >= len(buffer):
+                break
+            
+            rc = self.dataSocket.send(buffer[bytesSent:])
+            
+            if rc < 0:
+                print(f"send() failed [{socket.error}]")
+                return False
+            
+            bytesSent += rc
+        return bytesSent == len(buffer)
+    
+    def receiveBufferTcp(self, n: int):
+        bytesReceived = 0
+        buffer = bytearray()
+        
+        for _ in range(10):
+            data = self.dataSocket.recv(n - bytesReceived)
+            
+            if data == None:
+                print(f"recv() failed [{socket.error}]")
+                return None
+            buffer.extend(data)
+            
+            bytesReceived += len(data)
+        return buffer
+
+    def sendFile(self, destinationHostId: str, destinationServiceId: str, filepath: str, filename: str):
+        self.dataSocket.connect(self.serverTcpAddress)
+        fileSize = os.stat(filepath).st_size
+        self.sendCommand(f"WRITE_FILE {destinationHostId} {destinationServiceId} {filename} {fileSize}")
+        fileInfo = bytearray(f"{filename} {fileSize}".encode("UTF-8"))
+        if(len(fileInfo) < 128):
+            fileInfo.extend(bytearray(128-len(fileInfo)))
+        iv = randomBytes(16)
+        sendBuffer, tag = aesEncrypt(fileInfo, self.aesKey, iv)
+        sendBuffer = bytearray(sendBuffer)
+        if len(sendBuffer) < 128:
+            sendBuffer.extend(bytearray(128 - len(sendBuffer)))
+        sendBuffer.extend(iv)
+        sendBuffer.extend(tag)
+        
+        self.sendBufferTcp(sendBuffer)
+        
+        recvBuffer = self.receiveBufferTcp(17)
+        if recvBuffer == None:
+            return
+        
+        with open(filepath, "rb") as f:
+            bytesSent = 0
+            fileData = bytearray(f.read(FILE_BLOCK_SIZE))
+            if len(fileData) < FILE_BLOCK_SIZE:
+                fileData.extend(bytearray(FILE_BLOCK_SIZE - len(fileData)))
+            while bytesSent < fileSize:
+                iv = recvBuffer[1:]
+                sendBuffer, tag = aesEncrypt(fileData, self.aesKey, iv)
+                sendBuffer.extend(tag)
+                status = self.sendBufferTcp(sendBuffer)
+                if not status:
+                    print(f"sendBufferTcp() failed")
+                    break
+                
+                recvBuffer = self.receiveBufferTcp(17)
+                if recvBuffer == None:
+                    print(f"recvBufferTcp() failed")
+                    break
+                if recvBuffer[0] == 0:
+                    bytesSent += FILE_BLOCK_SIZE
+                    fileData = bytearray(f.read(FILE_BLOCK_SIZE))
+                    if len(fileData) < FILE_BLOCK_SIZE:
+                        fileData.extend(bytearray(FILE_BLOCK_SIZE - len(fileData)))
+                
+    def recvFile():
+        pass
+    
+    
+    def sendCommand(self, command: str):
+        sessionToken = rsaEncrypt(self.sessionToken.encode("UTF-8"), self.serverPublicKey)
+        data = randomBytes(32)
+        data.extend(command.encode("UTF-8"))
+        if len(data) < 200:
+            data.extend(bytearray(200-len(data)))
+        data = rsaEncrypt(data, self.serverPublicKey)
+        commandPacket = CommandPacket(self.connectionId, sessionToken, data)
+        buffer = CommandPacket.serialize(commandPacket)
+        self.sendBufferTcp(buffer)
+        
 
 def main():
     initializeSecurity()
@@ -353,6 +501,8 @@ def main():
     connectionId = homeLinkClient.login("password7")
     if not connectionId:
         print("Login failed")
+        
+    homeLinkClient.sendFile("LAPTOP", "ERIC", "225_225.png", "cp.png")
     homeLinkClient.shutdown()
 
 if __name__ == "__main__":
