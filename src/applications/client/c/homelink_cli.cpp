@@ -5,7 +5,8 @@
 #include <iostream>
 #include <string>
 
-int main() {
+int main()
+{
     HomeLinkClient client;
 
     initializeSecurity();
@@ -13,9 +14,11 @@ int main() {
     HomeLinkClient__login(&client, "passsssssword7777777");
 
     std::string line;
-    while(std::getline(std::cin, line)) {
+    while (std::getline(std::cin, line))
+    {
         std::cout << line << std::endl;
-        if(line == "quit") {
+        if (line == "quit")
+        {
             break;
         }
     }

@@ -23,7 +23,8 @@ static volatile bool initialized = false;
 
 bool initializeSecurity()
 {
-    if(initialized) {
+    if (initialized)
+    {
         return true;
     }
 
@@ -242,7 +243,7 @@ bool aesDecrypt(uint8_t *out, int *outLen, const uint8_t *in, int inLen, const u
 
 bool rsaEncrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen, const char *rsaPublicKey)
 {
-    BIO *bio = BIO_new_mem_buf(rsaPublicKey, strlen(rsaPublicKey)+1);
+    BIO *bio = BIO_new_mem_buf(rsaPublicKey, strlen(rsaPublicKey) + 1);
     EVP_PKEY *publicKey = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
 
     EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(publicKey, NULL);
@@ -386,7 +387,8 @@ char *saltedHash(const char *password, size_t passwordLen, const char *salt, siz
     return out;
 }
 
-uint16_t randomPort(uint16_t lowerBound, uint16_t upperBound) {
+uint16_t randomPort(uint16_t lowerBound, uint16_t upperBound)
+{
     uint32_t range = (uint32_t)upperBound - (uint32_t)lowerBound + 1;
     uint32_t idx = (uint32_t)rand() % range;
     return lowerBound + (uint16_t)idx;

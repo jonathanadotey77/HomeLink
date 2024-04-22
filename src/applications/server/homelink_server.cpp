@@ -574,7 +574,7 @@ void *clientThread(void *a)
 
     uint8_t commandBuffer[CommandPacket_SIZE];
     const size_t commandBufferLen = sizeof(commandBuffer);
-    uint8_t* aesKey = NULL;
+    uint8_t *aesKey = NULL;
 
     CommandPacket commandPacket;
 
@@ -591,7 +591,8 @@ void *clientThread(void *a)
         memset(&commandPacket, 0, sizeof(commandPacket));
         memset(&commandBuffer, 0, sizeof(commandBuffer));
         bool status = recvBufferTcp(sd, commandBuffer, commandBufferLen);
-        if(!status) {
+        if (!status)
+        {
             fprintf(stderr, "Failed to receive command\n");
             break;
         }
@@ -641,22 +642,28 @@ void *clientThread(void *a)
 
         const std::string &command = tokens[0];
 
-        if(verbose) {
+        if (verbose)
+        {
             printf("Recevied command: %s\n", commandStr + 32);
         }
 
         if (command == "READ_FILE")
         {
             std::string tempFilePath = fileQueue.nextFile(hostId, serviceId);
-            if(tempFilePath.empty()) {
+            if (tempFilePath.empty())
+            {
                 uint8_t buffer[1] = {0};
-                if(!sendBufferTcp(sd, buffer, 1)) {
+                if (!sendBufferTcp(sd, buffer, 1))
+                {
                     fprintf(stderr, "Could not send initial response for READ_FILE\n");
                 }
                 break;
-            } else {
+            }
+            else
+            {
                 uint8_t buffer[1] = {1};
-                if(!sendBufferTcp(sd, buffer, 1)) {
+                if (!sendBufferTcp(sd, buffer, 1))
+                {
                     fprintf(stderr, "Could not send initial response for READ_FILE\n");
                     break;
                 }
@@ -664,31 +671,40 @@ void *clientThread(void *a)
             std::string tempFilename = splitString(tempFilePath, '/').back();
             bool status = false;
             uint32_t i = 0;
-            for(; i < tempFilename.size(); ++i) {
-                if(tempFilename[i] == '.') {
+            for (; i < tempFilename.size(); ++i)
+            {
+                if (tempFilename[i] == '.')
+                {
                     ++i;
                     status = true;
                     break;
-                }   
+                }
             }
 
-            if(!status) {
+            if (!status)
+            {
                 break;
             }
-            
+
             status = sendFile(sd, tempFilePath.c_str(), tempFilename.c_str() + i, aesKey);
 
-            if(status) {
-                if(verbose) {
+            if (status)
+            {
+                if (verbose)
+                {
                     printf("File read succeeded\n");
                 }
 
-                if(verbose) {
+                if (verbose)
+                {
                     printf("Clearing %s from file queue {%s | %s}", tempFilename.c_str(), hostId.c_str(), serviceId.c_str());
                 }
                 fileQueue.pullFile(tempFilePath);
-            } else {
-                if(verbose) {
+            }
+            else
+            {
+                if (verbose)
+                {
                     printf("Failed to send file\n");
                 }
             }
@@ -710,7 +726,6 @@ void *clientThread(void *a)
 
             std::string tempFileFolder = TEMP_FILES_PATH + "/" + destinationHostId + "/" + destinationServiceId + "/";
             std::string tempFilePrefix = tempFileFolder;
-
 
             bool validName = true;
             for (char c : getTimestamp())
@@ -742,23 +757,28 @@ void *clientThread(void *a)
                 break;
             }
 
-            if(verbose) {
+            if (verbose)
+            {
                 printf("Writing to %s\n", tempFilePath.c_str());
             }
 
             fs::create_directories(tempFileFolder);
-            char* filename = recvFile(sd, tempFilePrefix.c_str(), aesKey, true);
+            char *filename = recvFile(sd, tempFilePrefix.c_str(), aesKey, true);
 
             if (filename != NULL)
             {
-                if(verbose) {
+                if (verbose)
+                {
                     printf("File '%s' received successfully\n", filename);
                 }
 
                 fileQueue.pushFile(destinationHostId, destinationServiceId, tempFilePath);
                 delete[] filename;
-            } else {
-                if(verbose) {
+            }
+            else
+            {
+                if (verbose)
+                {
                     printf("Failed to received file\n");
                 }
             }
@@ -767,7 +787,8 @@ void *clientThread(void *a)
         break;
     }
 
-    if(aesKey != NULL) {
+    if (aesKey != NULL)
+    {
         memset(aesKey, 0, 32);
         delete[] aesKey;
         aesKey = NULL;
@@ -786,7 +807,8 @@ void *clientThread(void *a)
     buffer[0] = 254;
     *(reinterpret_cast<pthread_t *>(buffer + 1)) = pthread_self();
     int rc = sendto(sd, buffer, sizeof(buffer), 0, reinterpret_cast<const struct sockaddr *>(&commandAddress), sizeof(commandAddress));
-    if(rc < 0) {
+    if (rc < 0)
+    {
         fprintf(stderr, "sendto() failed [%d]\n", errno);
     }
 

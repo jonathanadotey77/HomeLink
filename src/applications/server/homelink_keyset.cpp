@@ -119,8 +119,9 @@ void KeySet::destroy()
 
 uint8_t *KeySet::getAesKey() const
 {
-    uint8_t* key = new uint8_t[aesKeyLen];
-    for(size_t i = 0; i < aesKeyLen; ++i) {
+    uint8_t *key = new uint8_t[aesKeyLen];
+    for (size_t i = 0; i < aesKeyLen; ++i)
+    {
         key[i] = this->aesKey[i];
     }
     return key;

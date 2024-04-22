@@ -118,7 +118,6 @@ bool FileQueue::pushFile(const std::string &hostId, const std::string &serviceId
     ss << getTimestamp();
     ss << ".";
     ss << filename;
-    
 
     fs::create_directories(directory);
 

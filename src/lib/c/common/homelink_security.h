@@ -35,12 +35,12 @@ extern "C"
 
     bool rsaDecrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen, const char *rsaPublicKey);
 
-    char* hashPassword(const char *password, size_t passwordLen);
+    char *hashPassword(const char *password, size_t passwordLen);
 
-    char* saltedHash(const char* password, size_t passwordLen, const char* salt, size_t saltLen);
+    char *saltedHash(const char *password, size_t passwordLen, const char *salt, size_t saltLen);
 
     uint16_t randomPort(uint16_t lowerBound, uint16_t upperBound);
-    
+
 #ifdef __cplusplus
 }
 #endif

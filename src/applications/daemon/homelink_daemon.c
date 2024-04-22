@@ -16,7 +16,11 @@ HomeLinkClient client;
 
 volatile bool stopped = false;
 
-void shutdownHandler(int) {
+void shutdownHandler(int sig)
+{
+    if (sig)
+    {
+    }
     stopped = true;
 }
 
@@ -25,18 +29,24 @@ void shutdownDaemon()
     HomeLinkClient__logout(&client);
 }
 
-void run() {
-    while(!stopped) {
-        char* filename = HomeLinkClient__readFile(&client, daemonDirectory);
-        if(filename == NULL) {
+void run()
+{
+    while (!stopped)
+    {
+        char *filename = HomeLinkClient__readFile(&client, daemonDirectory);
+        if (filename == NULL)
+        {
             printf("File read error\n");
             sleep(5);
             continue;
         }
 
-        if(strlen(filename) > 0) {
+        if (strlen(filename) > 0)
+        {
             printf("Received file: %s\n", filename);
-        } else {
+        }
+        else
+        {
             printf("File queue is empty\n");
             sleep(5);
         }
@@ -57,13 +67,15 @@ int main()
 
     memset(&client, 0, sizeof(client));
 
-    char* dir = getenv("HOMELINK_DAEMON_FILES");
-    if(dir == NULL) {
+    char *dir = getenv("HOMELINK_DAEMON_FILES");
+    if (dir == NULL)
+    {
         fprintf(stderr, "Environment variable HOMELINK_DAEMON_FILES is empty or not set\n");
         return 1;
     }
-    strncpy(daemonDirectory, dir, sizeof(daemonDirectory)-2);
-    if(strlen(daemonDirectory) == 0) {
+    strncpy(daemonDirectory, dir, sizeof(daemonDirectory) - 2);
+    if (strlen(daemonDirectory) == 0)
+    {
         fprintf(stderr, "Environment variable HOMELINK_DAEMON_FILES is empty or not set\n");
         return 1;
     }
