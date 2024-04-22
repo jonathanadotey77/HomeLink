@@ -506,7 +506,7 @@ bool HomeLinkClient__readFile(HomeLinkClient *client, const char* directory)
     return status;
 }
 
-bool HomeLinkClient__writeFile(HomeLinkClient* client, const char* localPath, const char* remotePath) {
+bool HomeLinkClient__writeFile(HomeLinkClient* client, const char* destinationHostId, const char* destinationServiceId, const char* localPath, const char* remotePath) {
 
     char command[168] = {0};
 
@@ -520,7 +520,7 @@ bool HomeLinkClient__writeFile(HomeLinkClient* client, const char* localPath, co
 
     const uint64_t fileSize = st.st_size;
 
-    snprintf(command, sizeof(command)-1, "WRITE_FILE %s %llu", remotePath, (unsigned long long)fileSize);
+    snprintf(command, sizeof(command)-1, "WRITE_FILE %s %s %s %llu", destinationHostId, destinationServiceId, remotePath, (unsigned long long)fileSize);
 
     if (connect(client->dataSocket, (const struct sockaddr *)&client->serverDataAddress, sizeof(client->serverDataAddress)) < 0)
     {

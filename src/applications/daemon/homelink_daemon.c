@@ -21,7 +21,7 @@ void shutdownDaemon()
 void run() {
     printf("Login success\n");
 
-    HomeLinkClient__writeFile(&client, "t.txt", "t1.txt");
+    HomeLinkClient__writeFile(&client, client.hostId, serviceId, "t.txt", "t1.txt");
     HomeLinkClient__readFile(&client, NULL);
     printf("Done\n");
 }

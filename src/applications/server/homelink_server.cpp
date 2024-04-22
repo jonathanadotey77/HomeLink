@@ -649,7 +649,7 @@ void *clientThread(void *a)
         const std::string &command = tokens[0];
 
         if(verbose) {
-            printf("Recevied command: %s\n", command.c_str());
+            printf("Recevied command: %s\n", commandStr);
         }
 
         if (command == "READ_FILE")
@@ -682,7 +682,6 @@ void *clientThread(void *a)
 
                 if(verbose) {
                     printf("Clearing %s from file queue {%s | %s}", tempFilename.c_str(), hostId.c_str(), serviceId.c_str());
-                    printf("F=%s\n", tempFilePath.c_str());
                 }
                 fileQueue.pullFile(hostId, serviceId, tempFilePath);
             } else {
@@ -693,17 +692,20 @@ void *clientThread(void *a)
         }
         else if (command == "WRITE_FILE")
         {
-            if (tokens.size() != 3)
+            if (tokens.size() != 5)
             {
                 break;
             }
-            const std::string &filePath = tokens[1];
+            const std::string destinationHostId = tokens[1];
+            const std::string destinationServiceId = tokens[2];
+            const std::string &filePath = tokens[3];
+
             if (filePath.empty())
             {
                 break;
             }
 
-            std::string tempFileFolder = TEMP_FILES_PATH + "/" + hostId + "/" + serviceId + "/";
+            std::string tempFileFolder = TEMP_FILES_PATH + "/" + destinationHostId + "/" + destinationServiceId + "/";
             std::string tempFilePrefix = tempFileFolder;
 
 
@@ -742,7 +744,6 @@ void *clientThread(void *a)
             }
 
             fs::create_directories(tempFileFolder);
-            
             bool status = recvFile(sd, tempFilePrefix.c_str(), aesKey, true);
 
             if (status)
@@ -751,7 +752,7 @@ void *clientThread(void *a)
                     printf("File received successfully\n");
                 }
 
-                fileQueue.pushFile(hostId, serviceId, tempFilePath);
+                fileQueue.pushFile(destinationHostId, destinationServiceId, tempFilePath);
             } else {
                 if(verbose) {
                     printf("Failed to received file\n");
