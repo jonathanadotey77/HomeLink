@@ -9,6 +9,13 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS}")
 
+add_custom_target(homelink_init
+COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_SOURCE_DIR}/login
+COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_SOURCE_DIR}/filesystem
+COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_SOURCE_DIR}/temp_files
+)
+
+
 file(COPY src/applications/client/python/homelink_client.py DESTINATION ${CMAKE_BINARY_DIR}/applications/)
 
 add_subdirectory(src/applications)
