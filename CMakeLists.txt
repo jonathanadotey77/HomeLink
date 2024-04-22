@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
+set(CMAKE_C_COMPILER "clang")
+set(CMAKE_C_COMPILER "clang++")
+
 project(HomeLink LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)

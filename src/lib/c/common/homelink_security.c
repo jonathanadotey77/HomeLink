@@ -104,7 +104,7 @@ void printRSAPublicKey()
     getRSAPublicKey(key, &len);
 
     printf("Key: %s\n", key);
-    printf("Len: %lu\n", len);
+    printf("Len: %d\n", (int)len);
 }
 
 void randomBytes(uint8_t *buffer, int n)
