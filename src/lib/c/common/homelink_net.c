@@ -3,13 +3,14 @@
 #include <homelink_security.h>
 
 #include <arpa/inet.h>
+#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
-#define HOMELINKFILE_BLOCK_SIZE 8192
+#define HOMELINK_FILE_BLOCK_SIZE 8192
 
 bool sendBufferTcp(int sd, const uint8_t *buffer, int n)
 {
@@ -51,7 +52,7 @@ bool recvBufferTcp(int sd, uint8_t *buffer, int n)
 
 bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t *aesKey)
 {
-    uint8_t sendBuffer[HOMELINKFILE_BLOCK_SIZE + 16] = {0};
+    uint8_t sendBuffer[HOMELINK_FILE_BLOCK_SIZE + 16] = {0};
     uint8_t recvBuffer[17] = {0};
     char fileInfo[129] = {0};
 
@@ -79,9 +80,7 @@ bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t 
         return false;
     }
 
-    printf("Sending F\n");
     status = sendBufferTcp(sd, sendBuffer, sizeof(fileInfo) - 1 + 32);
-    printf("Sent F\n");
     if (!status)
     {
         fprintf(stderr, "Could not send file info\n");
@@ -95,10 +94,10 @@ bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t 
         fprintf(stderr, "Coult not receive first ACK\n");
     }
     iv = recvBuffer + 1;
-    tag = sendBuffer + HOMELINKFILE_BLOCK_SIZE;
+    tag = sendBuffer + HOMELINK_FILE_BLOCK_SIZE;
 
     uint64_t bytesSent = 0;
-    uint8_t data[HOMELINKFILE_BLOCK_SIZE];
+    uint8_t data[HOMELINK_FILE_BLOCK_SIZE];
 
     FILE *fp = fopen(filePath, "rb");
     if (fp == NULL)
@@ -108,12 +107,12 @@ bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t 
     }
 
     memset(data, 0, sizeof(data));
-    fread(data, 1, HOMELINKFILE_BLOCK_SIZE, fp);
+    fread(data, 1, HOMELINK_FILE_BLOCK_SIZE, fp);
 
     while (bytesSent < fileSize)
     {
         // Encrypt bytes
-        len = HOMELINKFILE_BLOCK_SIZE;
+        len = HOMELINK_FILE_BLOCK_SIZE;
         status = aesEncrypt(sendBuffer, &len, data, sizeof(data), aesKey, iv, tag);
         if (!status)
         {
@@ -140,9 +139,9 @@ bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t 
         // Read bytes if needed
         if (recvBuffer[0] == 0)
         {
-            bytesSent += HOMELINKFILE_BLOCK_SIZE;
+            bytesSent += HOMELINK_FILE_BLOCK_SIZE;
             memset(data, 0, sizeof(data));
-            fread(data, 1, HOMELINKFILE_BLOCK_SIZE, fp);
+            fread(data, 1, HOMELINK_FILE_BLOCK_SIZE, fp);
         }
     }
 
@@ -163,7 +162,7 @@ bool recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
 
     uint8_t sendBuffer[17] = {0};
     uint8_t *iv = sendBuffer + 1;
-    uint8_t recvBuffer[HOMELINKFILE_BLOCK_SIZE + 16] = {0};
+    uint8_t recvBuffer[HOMELINK_FILE_BLOCK_SIZE + 16] = {0};
     char fileInfo[129] = {0};
     bool status = true;
 
@@ -227,7 +226,6 @@ bool recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
     snprintf(filePath, sizeof(filePath)-1, "%s%s", prefix, filename);
 
     FILE *fp = fopen(filePath, "wb");
-    printf("Writing to FILLLLLLLLLLLLLLLLLE: %s\n", filePath);
     if (!fp)
     {
         fprintf(stderr, "fopen() failed\n");
@@ -236,7 +234,7 @@ bool recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
 
     uint64_t bytesReceived = 0;
     uint32_t blockNumber = 0;
-    uint8_t data[HOMELINKFILE_BLOCK_SIZE];
+    uint8_t data[HOMELINK_FILE_BLOCK_SIZE];
     while (bytesReceived < fileSize)
     {
         // Receive bytes
@@ -248,21 +246,22 @@ bool recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
         }
 
         // Decrypt bytes
-        uint8_t *tag = recvBuffer + HOMELINKFILE_BLOCK_SIZE;
+        uint8_t *tag = recvBuffer + HOMELINK_FILE_BLOCK_SIZE;
         int len = sizeof(data);
         memset(data, 0, sizeof(data));
-        status = aesDecrypt(data, &len, recvBuffer, HOMELINKFILE_BLOCK_SIZE, aesKey, iv, tag);
+        status = aesDecrypt(data, &len, recvBuffer, HOMELINK_FILE_BLOCK_SIZE, aesKey, iv, tag);
         if (status)
         {
             // Write to file
             sendBuffer[0] = 0;
-            bytesReceived += HOMELINKFILE_BLOCK_SIZE;
+            bytesReceived += HOMELINK_FILE_BLOCK_SIZE;
 
-            uint64_t bytes = HOMELINKFILE_BLOCK_SIZE;
+            uint64_t bytes = HOMELINK_FILE_BLOCK_SIZE;
             if (bytesReceived >= fileSize)
             {
-                bytes = fileSize - blockNumber * HOMELINKFILE_BLOCK_SIZE;
+                bytes = fileSize - blockNumber * HOMELINK_FILE_BLOCK_SIZE;
             }
+            blockNumber += 1;
 
             fwrite(data, bytes, 1, fp);
         }

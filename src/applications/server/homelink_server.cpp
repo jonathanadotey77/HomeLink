@@ -673,7 +673,7 @@ void *clientThread(void *a)
                 break;
             }
             
-            status = sendFile(sd, tempFilePath.c_str(), tempFilename.c_str(), aesKey);
+            status = sendFile(sd, tempFilePath.c_str(), tempFilename.c_str() + i, aesKey);
 
             if(status) {
                 if(verbose) {
@@ -681,7 +681,7 @@ void *clientThread(void *a)
                 }
 
                 if(verbose) {
-                    printf("Clearing %s from file Queue {%s | %s}", tempFilename.c_str(), hostId.c_str(), serviceId.c_str());
+                    printf("Clearing %s from file queue {%s | %s}", tempFilename.c_str(), hostId.c_str(), serviceId.c_str());
                     printf("F=%s\n", tempFilePath.c_str());
                 }
                 fileQueue.pullFile(hostId, serviceId, tempFilePath);

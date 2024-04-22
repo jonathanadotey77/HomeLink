@@ -17,7 +17,6 @@
 
 static void HomeLinkClient__sendCommand(HomeLinkClient* client, const char* command) {
     CommandPacket commandPacket;
-    printf("Sending %s\n", command);
     memset(&commandPacket, 0, sizeof(commandPacket));
 
     commandPacket.packetType = e_Command;
@@ -36,7 +35,6 @@ static void HomeLinkClient__sendCommand(HomeLinkClient* client, const char* comm
     CommandPacket_serialize(buffer, &commandPacket);
 
     sendBufferTcp(client->dataSocket, buffer, sizeof(buffer));
-    printf("Sent\n");
 }
 
 bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId)
@@ -494,7 +492,7 @@ bool HomeLinkClient__readFile(HomeLinkClient *client, const char* directory)
 
     HomeLinkClient__sendCommand(client, "READ_FILE");
 
-    bool status = recvFile(client->dataSocket, directory == NULL ? "." : directory, client->aesKey, false);
+    bool status = recvFile(client->dataSocket, directory == NULL ? "" : directory, client->aesKey, false);
 
     close(client->dataSocket);
     client->dataSocket = socket(AF_INET6, SOCK_STREAM, 0);
@@ -542,8 +540,6 @@ bool HomeLinkClient__writeFile(HomeLinkClient* client, const char* localPath, co
         fprintf(stderr, "socket() failed\n");
         exit(1);
     }
-
-    printf("Write succeeded\n");
 
     return status;
 }
