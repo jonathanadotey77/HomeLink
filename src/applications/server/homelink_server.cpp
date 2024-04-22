@@ -639,7 +639,7 @@ void *clientThread(void *a)
             break;
         }
 
-        std::vector<std::string> tokens = splitString(std::string(commandStr), ' ');
+        std::vector<std::string> tokens = splitString(std::string(commandStr + 32), ' ');
 
         if (tokens.empty())
         {

@@ -28,7 +28,7 @@ static void HomeLinkClient__sendCommand(HomeLinkClient* client, const char* comm
     char commandData[200] = {0};
     len = sizeof(commandPacket.data);
     randomBytes((uint8_t *)commandData, 32);
-    strncpy(commandData, command, sizeof(commandData) - 32 - 1);
+    strncpy(commandData + 32, command, sizeof(commandData) - 32 - 1);
     rsaEncrypt(commandPacket.data, &len, (uint8_t *)commandData, sizeof(commandData), client->serverPublicKey);
 
     uint8_t buffer[CommandPacket_SIZE];

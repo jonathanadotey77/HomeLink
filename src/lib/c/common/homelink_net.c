@@ -156,10 +156,6 @@ bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t 
 
 bool recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
 {
-    if(collapse) {
-
-    }
-
     uint8_t sendBuffer[17] = {0};
     uint8_t *iv = sendBuffer + 1;
     uint8_t recvBuffer[HOMELINK_FILE_BLOCK_SIZE + 16] = {0};
