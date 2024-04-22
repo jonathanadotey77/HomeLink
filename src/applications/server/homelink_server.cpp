@@ -591,15 +591,9 @@ void *clientThread(void *a)
     {
         memset(&commandPacket, 0, sizeof(commandPacket));
         memset(&commandBuffer, 0, sizeof(commandBuffer));
-        n = 0;
-
-        for (int i = 0; i < 5 && n < commandBufferLen; ++i)
-        {
-            n += recv(sd, commandBuffer, commandBufferLen - n, 0);
-        }
-
-        if (n != commandBufferLen)
-        {
+        bool status = recvBufferTcp(sd, commandBuffer, commandBufferLen);
+        if(!status) {
+            fprintf(stderr, "Failed to receive command\n");
             break;
         }
 
@@ -657,11 +651,16 @@ void *clientThread(void *a)
             std::string tempFilePath = fileQueue.nextFile(hostId, serviceId);
             if(tempFilePath.empty()) {
                 uint8_t buffer[1] = {0};
-                sendBufferTcp(dataSocket, buffer, 1);
+                if(!sendBufferTcp(sd, buffer, 1)) {
+                    fprintf(stderr, "Could not send initial response for READ_FILE\n");
+                }
                 break;
             } else {
                 uint8_t buffer[1] = {1};
-                sendBufferTcp(dataSocket, buffer, 1);
+                if(!sendBufferTcp(sd, buffer, 1)) {
+                    fprintf(stderr, "Could not send initial response for READ_FILE\n");
+                    break;
+                }
             }
             std::string tempFilename = splitString(tempFilePath, '/').back();
             bool status = false;

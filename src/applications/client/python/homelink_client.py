@@ -7,6 +7,7 @@ import os
 import random
 import socket
 import struct
+import sys
 
 RSA_KEY_SIZE = 2048
 
@@ -286,9 +287,8 @@ def aesDecrypt(data, key, iv, tag):
     cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
     
     temp = cipher.decrypt_and_verify(data, tag)
-    temp = (bytearray(temp[0]), bytearray(temp[1]))
 
-    return temp
+    return bytearray(temp) if temp else None
 
 def hashString(string: str):
     hash_object = SHA256.new(data=string.encode())
@@ -342,7 +342,7 @@ class HomeLinkClient:
         self.controlSocket.bind(self.controlAddress)
         self.dataSocket.bind(self.dataAddress)
         self.controlSocket.settimeout(3)
-        self.dataSocket.settimeout(3)
+        self.dataSocket.settimeout(1)
         self.controlSocket.connect(tuple(self.serverUdpAddress))
         self.clientPublicKey = getRSAPublicKey()
     
@@ -428,7 +428,14 @@ class HomeLinkClient:
         buffer = bytearray()
         
         for _ in range(10):
-            data = self.dataSocket.recv(n - bytesReceived)
+            if len(buffer) >= n:
+                break
+            data = None
+            try:
+                data = self.dataSocket.recv(n - bytesReceived)
+            except socket.timeout:
+                print(bytesReceived)
+                continue
             
             if data == None:
                 print(f"recv() failed [{socket.error}]")
@@ -482,10 +489,95 @@ class HomeLinkClient:
                     fileData = bytearray(f.read(FILE_BLOCK_SIZE))
                     if len(fileData) < FILE_BLOCK_SIZE:
                         fileData.extend(bytearray(FILE_BLOCK_SIZE - len(fileData)))
+            
+        self.dataSocket.close()
+        self.dataSocket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
                 
-    def recvFile():
-        pass
+    def recvFile(self, prefix: str, display: bool):
+        self.dataSocket.connect(self.serverTcpAddress)
+        
+        self.sendCommand("READ_FILE")
+        
+        info = self.receiveBufferTcp(1)
+        
+        if not info:
+            print("recvBufferTcp() failed")
+            
+        
+        if info[0] == 0:
+            return ""
+        
+        fileInfo = self.receiveBufferTcp(160)
+        if not fileInfo:
+            print("Could not fetch file info")
+            return None
+        
+        fileInfo = aesDecrypt(fileInfo[:128], self.aesKey, fileInfo[128:144], fileInfo[144:])
+        if fileInfo == None:
+            print("Could not fetch file info")
+            return None
+        
+        fileInfo = fileInfo.decode("UTF-8").rstrip('\x00')
+        fileInfo = fileInfo.split()
+        if len(fileInfo) != 2 or len(fileInfo[0]) == 0:
+            print("Invalid file info")
+            return None
+        
+        filename, fileSize = fileInfo
+        fileSize = int(fileSize)
+        iv = randomBytes(16)
+        status = self.sendBufferTcp(bytearray(1) + iv)
+        if not status:
+            print("Could not send first ACK")
+            return None
+        
+        
+        filePath = prefix + filename
+        bytesReceived = 0
+        success = True
+        with open(filePath, 'wb') as f:
+            blockNumber = 0
+            
+            while bytesReceived < fileSize:
+                buffer = self.receiveBufferTcp(FILE_BLOCK_SIZE + 16)
+                if not buffer:
+                    print("recvBufferTcp() failed")
+                    success = False
+                    break
+                
+                data = buffer[:FILE_BLOCK_SIZE]
+                tag = buffer[FILE_BLOCK_SIZE:]
+                data = aesDecrypt(data, self.aesKey, iv, tag)
+                if data:
+                    bytesReceived += FILE_BLOCK_SIZE
+                    numBytes = FILE_BLOCK_SIZE
+                    if bytesReceived >= fileSize:
+                        numBytes = fileSize - FILE_BLOCK_SIZE * blockNumber
+                    blockNumber += 1
+                    
+                    f.write(data[:numBytes])
+                
+                iv = randomBytes(16)
+                status = self.sendBufferTcp(bytearray(1) + iv)
+        
+        
+        if not success or bytesReceived < fileSize:
+            os.remove(filePath)
+            return None
     
+    
+        if display:
+            with open(filePath, "r") as f:
+                try:
+                    i = 1
+                    for line in f:
+                        print(f"{i}| {line}")
+                except UnicodeDecodeError:
+                    print("File is not in UTF-8 format")
+        
+        self.dataSocket.close()
+        self.dataSocket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        return filePath
     
     def sendCommand(self, command: str):
         sessionToken = rsaEncrypt(self.sessionToken.encode("UTF-8"), self.serverPublicKey)
@@ -500,14 +592,61 @@ class HomeLinkClient:
         
 
 def main():
+    
+    args = sys.argv
+    
+    if len(args) < 2:
+        print("Invalid command")
+        return
+    
     initializeSecurity()
     homeLinkClient = HomeLinkClient()
-    homeLinkClient.initialize("ERIC")
+    homeLinkClient.initialize(sys.argv[1])
     connectionId = homeLinkClient.login("password7")
     if not connectionId:
         print("Login failed")
         
-    homeLinkClient.sendFile("LAPTOP", "ERIC", "225_225.png", "cp.png")
+    command = args[2]
+    
+    
+    if command == "get":
+        if len(args) < 3:
+            print("Invalid command")
+            return
+        prefix = ""
+        display = False
+        
+        for i in range(3, len(args)):
+            arg, data = args[i].split('=')
+            if arg == "directory":
+                prefix = data
+            elif arg == "display":
+                display = data == "true"
+            else:
+                print("Invalid command")
+                return
+        
+        filePath = homeLinkClient.recvFile(prefix, display)
+        
+        if filePath:
+            print(f"Received file: {filePath}")
+        elif len(filePath) == 0:
+            print("No files in file queue")
+        else:
+            print("Could not receive file")
+        
+    
+    elif command == "send":
+        if len(args) < 7:
+            print("Invalid command")
+            return
+        _, _, _, hostId, serviceId, localPath, remotePath = args
+        homeLinkClient.sendFile(hostId, serviceId, localPath, remotePath)
+        
+    else:
+        print("Invalid command")
+        return    
+    
     homeLinkClient.shutdown()
 
 if __name__ == "__main__":

@@ -92,6 +92,7 @@ bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t 
     if (!status)
     {
         fprintf(stderr, "Coult not receive first ACK\n");
+        return false;
     }
     iv = recvBuffer + 1;
     tag = sendBuffer + HOMELINK_FILE_BLOCK_SIZE;
