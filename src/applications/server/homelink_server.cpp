@@ -656,7 +656,12 @@ void *clientThread(void *a)
         {
             std::string tempFilePath = fileQueue.nextFile(hostId, serviceId);
             if(tempFilePath.empty()) {
+                uint8_t buffer[1] = {0};
+                sendBufferTcp(dataSocket, buffer, 1);
                 break;
+            } else {
+                uint8_t buffer[1] = {1};
+                sendBufferTcp(dataSocket, buffer, 1);
             }
             std::string tempFilename = splitString(tempFilePath, '/').back();
             bool status = false;
