@@ -7,6 +7,7 @@ extern "C"
 #endif
 
 #include <netinet/in.h>
+#include <stdbool.h>
 
     struct in6_addr getIpAddress();
 

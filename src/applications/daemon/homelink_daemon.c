@@ -20,6 +20,10 @@ void shutdownDaemon()
 
 void run() {
     printf("Login success\n");
+
+    HomeLinkClient__writeFile(&client, "t.txt", "t1.txt");
+    HomeLinkClient__readFile(&client, NULL);
+    printf("Done\n");
 }
 
 int main()
@@ -44,7 +48,6 @@ int main()
         fprintf(stderr, "Login failed\n");
         return 1;
     }
-
 
     run();
 

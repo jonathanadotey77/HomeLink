@@ -1,11 +1,14 @@
+#include <homelink_filequeue.h>
 #include <homelink_keyset.h>
 #include <homelink_loginstatus.h>
 #include <homelink_loginsystem.h>
 #include <homelink_misc.h>
+#include <homelink_net.h>
 #include <homelink_packet.h>
 #include <homelink_security.h>
 
 #include <arpa/inet.h>
+#include <filesystem>
 #include <iostream>
 #include <mutex>
 #include <poll.h>
@@ -14,26 +17,30 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
+#include <unordered_set>
 #include <unordered_map>
 #include <vector>
 
+namespace fs = std::filesystem;
+
 bool verbose = false;
 
-uint16_t listenerPort = 10000;
-uint16_t serverStartPort = 10001;
-uint16_t numPorts = 10;
+uint16_t controlPort = 10000;
+uint16_t dataPort = 10001;
 
 int controlSocket = -1;
 int commandSocket = -1;
-int *dataSockets = NULL;
+int dataSocket = -1;
 
-struct sockaddr_in6 listenerAddress;
+struct sockaddr_in6 controlAddress;
 struct sockaddr_in6 commandAddress;
-struct sockaddr_in6 *dataAddresses;
+struct sockaddr_in6 dataAddress;
 
-pthread_t listenerThreadId = 0;
+pthread_t controlThreadId = 0;
 pthread_t commandThreadId = 0;
+pthread_t dataThreadId = 0;
 
 std::mutex serverLock;
 
@@ -42,7 +49,19 @@ volatile bool isStopped = false;
 std::unordered_map<uint32_t, KeySet> clientKeys;
 std::mutex clientKeysLock;
 
+std::unordered_set<pthread_t> clientThreads;
+std::mutex clientThreadsLock;
+
+FileQueue fileQueue;
 LoginSystem loginSystem;
+
+typedef struct ClientThreadArgs
+{
+    int sd;
+    struct sockaddr_in6 sourceAddress;
+} ClientThreadArgs;
+
+static const std::string TEMP_FILES_PATH = std::string(std::getenv("HOMELINK_ROOT")) + "/temp_files";
 
 void terminationHandler(int sig)
 {
@@ -58,27 +77,28 @@ bool parseArgs(int argc, char *argv[])
     {
         std::string command(argv[i]);
 
-        if (command == "--start-port")
+        if (command == "--control-port")
         {
             int p = atoi(argv[i + 1]);
             if (p > UINT16_MAX || p <= 0)
             {
-                std::cerr << "Invalid start port" << std::endl;
+                std::cerr << "Invalid control port" << std::endl;
                 return false;
             }
+
+            controlPort = static_cast<uint16_t>(p);
             i += 2;
         }
-        else if (command == "--num-ports")
+        else if (command == "--data-port")
         {
-            int n = atoi(argv[i + 1]);
-            if (n >= 10)
+            int p = atoi(argv[i + 1]);
+            if (p > UINT16_MAX || p <= 0)
             {
-                numPorts = n;
+                std::cerr << "Invalid data port" << std::endl;
+                return false;
             }
-            else
-            {
-                fprintf(stderr, "Number of ports must be at least 10, dafaulting to 10\n");
-            }
+
+            dataPort = static_cast<uint16_t>(p);
             i += 2;
         }
         else if (command == "--verbose")
@@ -143,6 +163,49 @@ void handleCLICommand(int commandSocket, const struct sockaddr *sourceAddress, s
     }
 }
 
+bool validateClient(uint32_t connectionId, const uint8_t *encryptedSessionKey, size_t encryptedSessionKeyLen)
+{
+    if (verbose)
+    {
+        printf("Validating client {connectionId=%u}\n", connectionId);
+    }
+    bool success = false;
+    char sessionKey[256];
+    memset(sessionKey, 0, sizeof(sessionKey));
+    size_t len = sizeof(sessionKey);
+
+    clientKeysLock.lock();
+    if (rsaDecrypt(reinterpret_cast<uint8_t *>(sessionKey), &len, encryptedSessionKey, encryptedSessionKeyLen, NULL))
+    {
+        if (clientKeys.find(connectionId) == clientKeys.end())
+        {
+            if (verbose)
+            {
+                printf("Connection ID not found\n");
+            }
+        }
+        else if (clientKeys[connectionId].validSessionKey(sessionKey))
+        {
+            if (verbose)
+            {
+                printf("Validation successful\n");
+            }
+            success = true;
+        }
+    }
+    else
+    {
+        if (verbose)
+        {
+            printf("Could not decrypt session key\n");
+        }
+    }
+    clientKeysLock.unlock();
+    memset(sessionKey, 0, sizeof(sessionKey));
+
+    return success;
+}
+
 void *commandThread(void *)
 {
     struct sockaddr_in6 sourceAddress;
@@ -172,7 +235,6 @@ void *commandThread(void *)
             continue;
         }
 
-        printf("Loop\n");
         memset(buffer, 0, sizeof(buffer));
         memset(data, 0, sizeof(data));
         memset(&cliPacket, 0, sizeof(cliPacket));
@@ -205,21 +267,29 @@ void *commandThread(void *)
                 fprintf(stderr, "sendto() failed [%d]\n", errno);
             }
         }
+        else if (rc == 9 && packetType == 254)
+        {
+            pthread_t *threadPtr = reinterpret_cast<pthread_t *>(buffer + 1);
+            clientThreadsLock.lock();
+            clientThreads.erase(*threadPtr);
+            clientThreadsLock.unlock();
+            pthread_join(*threadPtr, NULL);
+        }
     }
 
     return NULL;
 }
 
-void *listenerThread(void *)
+void *controlThread(void *)
 {
     struct sockaddr_in6 sourceAddress;
     socklen_t sourceAddressLen = sizeof(sourceAddress);
     int rc = 0;
     uint8_t buffer[1024];
+    struct pollfd fds[1];
     while (!isStopped)
     {
 
-        struct pollfd fds[1];
         fds[0].fd = controlSocket;
         fds[0].events = POLLIN;
         fds[0].revents = 0;
@@ -272,6 +342,7 @@ void *listenerThread(void *)
                 printf("Login request received with {hostId, serviceID} = {%s, %s}\n", loginRequestPacket.hostId, loginRequestPacket.serviceId);
             }
             const uint32_t connectionId = loginRequestPacket.connectionId;
+            clientKeysLock.lock();
             if (clientKeys.find(connectionId) == clientKeys.end())
             {
                 if (verbose)
@@ -292,6 +363,8 @@ void *listenerThread(void *)
                     printf("Login success\n");
                 }
 
+                clientKeys[connectionId].setUser(hostId, serviceId);
+
                 LoginResponsePacket loginResponsePacket;
                 loginResponsePacket.packetType = e_LoginResponse;
                 loginResponsePacket.status = 1;
@@ -311,6 +384,7 @@ void *listenerThread(void *)
 
                 memset(&loginResponsePacket, 0, sizeof(loginResponsePacket));
             }
+            clientKeysLock.unlock();
 
             memset(&loginRequestPacket, 0, sizeof(loginRequestPacket));
         }
@@ -324,6 +398,40 @@ void *listenerThread(void *)
                 printf("Register request received with {hostId, serviceID} = {%s, %s}\n", registerRequestPacket.hostId, registerRequestPacket.serviceId);
             }
 
+            bool valid = true;
+
+            for (char *c = registerRequestPacket.hostId; *c != '\0'; ++c)
+            {
+                if (*c == '/')
+                {
+                    if (verbose)
+                    {
+                        printf("Invalid hostId");
+                    }
+
+                    valid = false;
+                }
+            }
+
+            for (char *c = registerRequestPacket.serviceId; *c != '\0'; ++c)
+            {
+                if (*c == '/')
+                {
+                    if (verbose)
+                    {
+                        printf("Invalid serviceId");
+                    }
+
+                    valid = false;
+                }
+            }
+
+            if (!valid)
+            {
+                memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
+                continue;
+            }
+
             uint8_t data[256] = {0};
             size_t dataLen = sizeof(data);
             bool decrypted = rsaDecrypt(data, &dataLen, registerRequestPacket.data, sizeof(registerRequestPacket.data), NULL);
@@ -334,6 +442,8 @@ void *listenerThread(void *)
                 {
                     printf("Decryption failed\n");
                 }
+
+                memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
                 continue;
             }
 
@@ -341,6 +451,7 @@ void *listenerThread(void *)
             if (clientKeys.find(connectionId) == clientKeys.end())
             {
                 printf("Invalid connectionId {%u}\n", connectionId);
+                memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
                 continue;
             }
             const char *hostId = registerRequestPacket.hostId;
@@ -365,6 +476,9 @@ void *listenerThread(void *)
             {
                 fprintf(stderr, "sendto() failed [%d]\n", errno);
             }
+
+            memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
+            memset(&registerResponsePacket, 0, sizeof(registerResponsePacket));
         }
         else if (packetType == e_KeyRequest && rc == KeyRequestPacket_SIZE)
         {
@@ -418,6 +532,8 @@ void *listenerThread(void *)
             getRSAPublicKey(publicKey, &len);
             strncpy(keyResponsePacket.rsaPublicKey, publicKey, len);
 
+            rsaEncrypt(keyResponsePacket.aesKey, &len, clientKeys[keyRequestPacket.connectionId].getAesKey(), AES_KEY_LEN / 8, keyRequestPacket.rsaPublicKey);
+
             KeyResponsePacket_serialize(buffer, &keyResponsePacket);
             int rc = sendto(controlSocket, buffer, KeyResponsePacket_SIZE, 0, reinterpret_cast<const struct sockaddr *>(&sourceAddress), sourceAddressLen);
             if (rc < 0)
@@ -435,36 +551,299 @@ void *listenerThread(void *)
                 printf("Logout packet received {%u}\n", logoutPacket.connectionId);
             }
 
-            char sessionKey[256];
-            memset(sessionKey, 0, sizeof(sessionKey));
-            size_t len = sizeof(sessionKey);
-            if (rsaDecrypt(reinterpret_cast<uint8_t *>(sessionKey), &len, logoutPacket.sessionKey, sizeof(logoutPacket.sessionKey), NULL))
+            if (validateClient(logoutPacket.connectionId, logoutPacket.sessionKey, sizeof(logoutPacket.sessionKey)))
             {
-                if (clientKeys.find(logoutPacket.connectionId) == clientKeys.end())
-                {
-                    if (verbose)
-                    {
-                        printf("Connection ID not found\n");
-                    }
-                }
-                else if (clientKeys[logoutPacket.connectionId].validSessionKey(sessionKey))
-                {
-                    if (verbose)
-                    {
-                        printf("Logout successful\n");
-                    }
-                    clientKeys.erase(logoutPacket.connectionId);
-                }
+                clientKeys.erase(logoutPacket.connectionId);
             }
-            else
-            {
-                if (verbose)
-                {
-                    printf("Could not decrypt session key\n");
-                }
-            }
+
             memset(&logoutPacket, 0, sizeof(logoutPacket));
         }
+    }
+
+    return NULL;
+}
+
+void *clientThread(void *a)
+{
+    ClientThreadArgs *args = reinterpret_cast<ClientThreadArgs *>(a);
+
+    int sd = args->sd;
+    struct sockaddr_in6 sourceAddress = args->sourceAddress;
+
+    delete args;
+
+    uint8_t commandBuffer[CommandPacket_SIZE];
+    const size_t commandBufferLen = sizeof(commandBuffer);
+    size_t n = 0;
+    uint8_t* aesKey = NULL;
+
+    CommandPacket commandPacket;
+
+    if (verbose)
+    {
+        char *ipAddress = new char[64];
+        getIpv6Str(ipAddress, &sourceAddress.sin6_addr);
+        printf("Received TCP connection from %s:%d \n", ipAddress, ntohs(sourceAddress.sin6_port));
+        delete[] ipAddress;
+    }
+
+    while (!isStopped)
+    {
+        memset(&commandPacket, 0, sizeof(commandPacket));
+        memset(&commandBuffer, 0, sizeof(commandBuffer));
+        n = 0;
+
+        for (int i = 0; i < 5 && n < commandBufferLen; ++i)
+        {
+            n += recv(sd, commandBuffer, commandBufferLen - n, 0);
+        }
+
+        if (n != commandBufferLen)
+        {
+            break;
+        }
+
+        CommandPacket_deserialize(&commandPacket, commandBuffer);
+
+        if (commandPacket.packetType != e_Command)
+        {
+            break;
+        }
+
+        if (!validateClient(commandPacket.connectionId, commandPacket.sessionToken, sizeof(commandPacket.sessionToken)))
+        {
+            if (verbose)
+            {
+                printf("Client validation failed\n");
+            }
+
+            break;
+        }
+
+        clientKeysLock.lock();
+        const KeySet &info = clientKeys[commandPacket.connectionId];
+        std::string hostId = info.getHostId();
+        std::string serviceId = info.getServiceId();
+        aesKey = info.getAesKey();
+        clientKeysLock.unlock();
+
+        char commandStr[256] = {0};
+        size_t commandStrLen = sizeof(commandStr);
+        if (!rsaDecrypt(reinterpret_cast<uint8_t *>(commandStr), &commandStrLen, commandPacket.data, sizeof(commandPacket.data), NULL))
+        {
+            if (verbose)
+            {
+                printf("Command decryption failed\n");
+            }
+
+            break;
+        }
+
+        std::vector<std::string> tokens = splitString(std::string(commandStr), ' ');
+
+        if (tokens.empty())
+        {
+            break;
+        }
+
+        const std::string &command = tokens[0];
+
+        if(verbose) {
+            printf("Recevied command: %s\n", command.c_str());
+        }
+
+        if (command == "READ_FILE")
+        {
+            std::string tempFilePath = fileQueue.nextFile(hostId, serviceId);
+            if(tempFilePath.empty()) {
+                break;
+            }
+            std::string tempFilename = splitString(tempFilePath, '/').back();
+            bool status = false;
+            uint32_t i = 0;
+            for(; i < tempFilename.size(); ++i) {
+                if(tempFilename[i] == '.') {
+                    ++i;
+                    status = true;
+                    break;
+                }   
+            }
+
+            if(!status) {
+                break;
+            }
+            
+            status = sendFile(sd, tempFilePath.c_str(), tempFilename.c_str(), aesKey);
+
+            if(status) {
+                if(verbose) {
+                    printf("File read succeeded\n");
+                }
+
+                if(verbose) {
+                    printf("Clearing %s from file Queue {%s | %s}", tempFilename.c_str(), hostId.c_str(), serviceId.c_str());
+                    printf("F=%s\n", tempFilePath.c_str());
+                }
+                fileQueue.pullFile(hostId, serviceId, tempFilePath);
+            } else {
+                if(verbose) {
+                    printf("Failed to send file\n");
+                }
+            }
+        }
+        else if (command == "WRITE_FILE")
+        {
+            if (tokens.size() != 3)
+            {
+                break;
+            }
+            const std::string &filePath = tokens[1];
+            if (filePath.empty())
+            {
+                break;
+            }
+
+            std::string tempFileFolder = TEMP_FILES_PATH + "/" + hostId + "/" + serviceId + "/";
+            std::string tempFilePrefix = tempFileFolder;
+
+
+            bool validName = true;
+            for (char c : getTimestamp())
+            {
+                tempFilePrefix.push_back(c);
+            }
+            tempFilePrefix.push_back('.');
+            std::string tempFilePath = tempFilePrefix;
+
+            for (char c : filePath)
+            {
+                if (c == '/')
+                {
+                    tempFilePath.push_back('+');
+                }
+                else if (c == '+')
+                {
+                    validName = false;
+                    break;
+                }
+                else
+                {
+                    tempFilePath.push_back(c);
+                }
+            }
+
+            if (!validName)
+            {
+                break;
+            }
+
+            if(verbose) {
+                printf("Writing to %s\n", tempFilePath.c_str());
+            }
+
+            fs::create_directories(tempFileFolder);
+            
+            bool status = recvFile(sd, tempFilePrefix.c_str(), aesKey, true);
+
+            if (status)
+            {
+                if(verbose) {
+                    printf("File received successfully\n");
+                }
+
+                fileQueue.pushFile(hostId, serviceId, tempFilePath);
+            } else {
+                if(verbose) {
+                    printf("Failed to received file\n");
+                }
+            }
+        }
+
+        break;
+    }
+
+    if(aesKey != NULL) {
+        memset(aesKey, 0, 32);
+        delete[] aesKey;
+        aesKey = NULL;
+    }
+
+    close(sd);
+
+    // Join this thread
+    sd = socket(AF_INET6, SOCK_DGRAM, 0);
+    if (sd < 0)
+    {
+        return NULL;
+    }
+
+    uint8_t buffer[9] = {0};
+    buffer[0] = 254;
+    *(reinterpret_cast<pthread_t *>(buffer + 1)) = pthread_self();
+    int rc = sendto(sd, buffer, sizeof(buffer), 0, reinterpret_cast<const struct sockaddr *>(&commandAddress), sizeof(commandAddress));
+    if(rc < 0) {
+        fprintf(stderr, "sendto() failed [%d]\n", errno);
+    }
+
+    close(sd);
+
+    return NULL;
+}
+
+void *dataThread(void *)
+{
+
+    if (listen(dataSocket, 5) < 0)
+    {
+        fprintf(stderr, "listen() failed [%d]\n", errno);
+        return NULL;
+    }
+
+    struct pollfd fds[1];
+    int rc = 0;
+
+    struct sockaddr_in6 sourceAddress;
+    socklen_t sourceAddressLen = sizeof(sourceAddress);
+
+    while (!isStopped)
+    {
+        memset(&sourceAddress, 0, sizeof(sourceAddress));
+        sourceAddressLen = sizeof(sourceAddress);
+
+        fds[0].fd = dataSocket;
+        fds[0].events = POLLIN;
+        fds[0].revents = 0;
+
+        rc = poll(fds, 1, 2000);
+
+        if (rc < 0)
+        {
+            fprintf(stderr, "poll() failed [%d]\n", errno);
+            continue;
+        }
+        else if (rc == 0)
+        {
+            continue;
+        }
+
+        int sd = accept(dataSocket, reinterpret_cast<struct sockaddr *>(&sourceAddress), &sourceAddressLen);
+        if (sd < 0)
+        {
+            fprintf(stderr, "accept() failed [%d]\n", errno);
+        }
+        else
+        {
+        }
+        ClientThreadArgs *args = new ClientThreadArgs;
+        args->sd = sd;
+        args->sourceAddress = sourceAddress;
+
+        pthread_t threadId = 0;
+        pthread_create(&threadId, NULL, clientThread, args);
+
+        clientThreadsLock.lock();
+        clientThreads.insert(threadId);
+        clientThreadsLock.unlock();
     }
 
     return NULL;
@@ -484,7 +863,7 @@ bool start()
         return false;
     }
 
-    memset(&listenerAddress, 0, sizeof(listenerAddress));
+    memset(&controlAddress, 0, sizeof(controlAddress));
     controlSocket = socket(AF_INET6, SOCK_DGRAM, 0);
     if (controlSocket < 0)
     {
@@ -493,21 +872,41 @@ bool start()
         return false;
     }
 
+    dataSocket = socket(AF_INET6, SOCK_STREAM, 0);
+    if (dataSocket < 0)
+    {
+        fprintf(stderr, "socket() failed [%d]\n", errno);
+        close(controlSocket);
+        cleanSecurity();
+        return false;
+    }
+
+    struct linger ling;
+    ling.l_onoff = 0;
+    ling.l_linger = 0;
+
+    int optval = 1;
+    setsockopt(dataSocket, SOL_SOCKET, SO_LINGER, &ling, sizeof(ling));
+    setsockopt(dataSocket, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+    setsockopt(dataSocket, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
+
     commandSocket = socket(AF_INET6, SOCK_DGRAM, 0);
     if (commandSocket < 0)
     {
+        close(controlSocket);
+        close(dataSocket);
         fprintf(stderr, "socket() failed [%d]\n", errno);
         return NULL;
     }
 
-    dataSockets = new int[numPorts];
-    dataAddresses = new struct sockaddr_in6[numPorts];
+    controlAddress.sin6_family = AF_INET6;
+    controlAddress.sin6_addr = in6addr_any;
+    controlAddress.sin6_port = htons(controlPort);
+    controlAddress.sin6_flowinfo = 0;
+    controlAddress.sin6_scope_id = 0;
 
-    listenerAddress.sin6_family = AF_INET6;
-    listenerAddress.sin6_addr = in6addr_any;
-    listenerAddress.sin6_port = htons(listenerPort);
-    listenerAddress.sin6_flowinfo = 0;
-    listenerAddress.sin6_scope_id = 0;
+    dataAddress = controlAddress;
+    dataAddress.sin6_port = htons(dataPort);
 
     commandAddress.sin6_family = AF_INET6;
     commandAddress.sin6_addr = parseIpAddress("127.0.0.1");
@@ -515,7 +914,7 @@ bool start()
     commandAddress.sin6_flowinfo = 0;
     commandAddress.sin6_scope_id = 0;
 
-    if (bind(controlSocket, reinterpret_cast<const sockaddr *>(&listenerAddress), sizeof(listenerAddress)) < 0)
+    if (bind(controlSocket, reinterpret_cast<const sockaddr *>(&controlAddress), sizeof(controlAddress)) < 0)
     {
         fprintf(stderr, "bind() failed [%d]\n", errno);
         cleanSecurity();
@@ -525,45 +924,25 @@ bool start()
     if (bind(commandSocket, reinterpret_cast<const struct sockaddr *>(&commandAddress), sizeof(commandAddress)) < 0)
     {
         fprintf(stderr, "bind() failed [%d]\n", errno);
+        close(controlSocket);
+        cleanSecurity();
         return NULL;
     }
-    for (uint16_t i = 0; i < numPorts; ++i)
+
+    if (bind(dataSocket, reinterpret_cast<const struct sockaddr *>(&dataAddress), sizeof(dataAddress)) < 0)
     {
-        bool failed = false;
-        dataSockets[i] = socket(AF_INET6, SOCK_STREAM, 0);
-        dataAddresses[i].sin6_family = AF_INET6;
-        dataAddresses[i].sin6_addr = in6addr_any;
-        dataAddresses[i].sin6_port = htons(serverStartPort + i);
-        dataAddresses[i].sin6_flowinfo = 0;
-        dataAddresses[i].sin6_scope_id = 0;
-
-        if (dataSockets[i] < 0)
-        {
-            fprintf(stderr, "socket() failed [%d]\n", errno);
-            failed = true;
-        }
-
-        if (!failed && bind(dataSockets[i], reinterpret_cast<const struct sockaddr *>(&dataAddresses[i]), sizeof(dataAddresses[i])) < 0)
-        {
-            fprintf(stderr, "bind() failed [%d]\n", errno);
-            failed = true;
-        }
-
-        if (failed)
-        {
-            for (uint16_t j = 0; j < i; ++j)
-            {
-                close(dataSockets[i]);
-            }
-            cleanSecurity();
-            return false;
-        }
+        fprintf(stderr, "bind()  failed [%d]\n", errno);
+        close(controlSocket);
+        close(commandSocket);
+        cleanSecurity();
+        return NULL;
     }
 
     signal(SIGTSTP, terminationHandler);
     signal(SIGINT, terminationHandler);
     pthread_create(&commandThreadId, NULL, commandThread, NULL);
-    pthread_create(&listenerThreadId, NULL, listenerThread, NULL);
+    pthread_create(&controlThreadId, NULL, controlThread, NULL);
+    pthread_create(&dataThreadId, NULL, dataThread, NULL);
 
     return true;
 }
@@ -571,14 +950,7 @@ bool start()
 void stop()
 {
     close(controlSocket);
-    for (int i = 0; i < numPorts; ++i)
-    {
-        close(dataSockets[i]);
-    }
-
-    delete[] dataAddresses;
-    delete[] dataSockets;
-
+    close(dataSocket);
     close(commandSocket);
 
     loginSystem.stop();
@@ -600,10 +972,18 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    std::cout << "HomeLink server listening on port " << listenerPort << std::endl;
+    std::cout << "HomeLink server listening on port " << controlPort << std::endl;
 
     pthread_join(commandThreadId, NULL);
-    pthread_join(listenerThreadId, NULL);
+    pthread_join(controlThreadId, NULL);
+    pthread_join(dataThreadId, NULL);
+
+    clientThreadsLock.lock();
+    for (pthread_t tid : clientThreads)
+    {
+        pthread_join(tid, NULL);
+    }
+    clientThreadsLock.unlock();
 
     stop();
 

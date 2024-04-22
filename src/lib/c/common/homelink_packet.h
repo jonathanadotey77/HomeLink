@@ -8,7 +8,7 @@ extern "C"
 
 #include <stdint.h>
 
-    enum HomeLinkPacketType
+    typedef enum HomeLinkPacketType
     {
         e_CLI = 255,
         e_Ack = 0,
@@ -20,8 +20,17 @@ extern "C"
         e_LoginResponse = 6,
         e_RegisterRequest = 7,
         e_RegisterResponse = 8,
-        e_Logout = 9
-    };
+        e_Logout = 9,
+        e_FileReadRequest = 10,
+        e_FileReadResponse = 11
+    } HomeLinkPacketType;
+
+    typedef enum FileReadRequestStatus
+    {
+        e_Empty = 0,
+        e_Available = 1,
+        e_NoPort = 2
+    } FileReadRequestStatus;
 
     // UDP localhost only
     typedef struct CLIPacket
@@ -67,6 +76,7 @@ extern "C"
     typedef struct CommandPacket
     {
         uint8_t packetType;
+        uint32_t connectionId;
         uint8_t sessionToken[256];
         uint8_t data[256];
     } CommandPacket;
@@ -117,7 +127,8 @@ extern "C"
     void RegisterResponsePacket_serialize(uint8_t *buffer, const RegisterResponsePacket *packet);
     void RegisterResponsePacket_deserialize(RegisterResponsePacket *packet, const uint8_t *buffer);
 
-    typedef struct LogoutPacket {
+    typedef struct LogoutPacket
+    {
         uint8_t packetType;
         uint32_t connectionId;
         uint8_t sessionKey[256];
@@ -126,6 +137,29 @@ extern "C"
     void LogoutPacket_serialize(uint8_t *buffer, const LogoutPacket *packet);
     void LogoutPacket_deserialize(LogoutPacket *packet, const uint8_t *buffer);
 
+    typedef struct FileReadRequestPacket
+    {
+        uint8_t packetType;
+        uint32_t connectionId;
+        uint8_t sessionKey[256];
+        uint16_t clientPort;
+    } FileReadRequestPacket;
+
+    extern const int32_t FileReadRequestPacket__SIZE;
+    void FileReadRequestPacket_serialize(uint8_t *buffer, const FileReadRequestPacket *packet);
+    void FileReadRequestPacket_deserialize(FileReadRequestPacket *packet, const uint8_t *buffer);
+
+    typedef struct FileReadResponsePacket
+    {
+        uint8_t packetType;
+        uint8_t status;
+        uint64_t fileSize;
+        uint16_t serverPort;
+    } FileReadResponsePacket;
+
+    extern const int32_t FileReadResponsePacket__SIZE;
+    void FileReadResponsePacket_serialize(uint8_t *buffer, const FileReadResponsePacket *packet);
+    void FileReadResponsePacket_deserialize(FileReadResponsePacket *packet, const uint8_t *buffer);
 
 #ifdef __cplusplus
 }

@@ -175,7 +175,7 @@ bool aesEncrypt(uint8_t *out, int *outLen, const uint8_t *in, int inLen, const u
     rc = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag);
     if (rc <= 0)
     {
-        fprintf(stderr, "Could not  in aesEncrypt()\n");
+        fprintf(stderr, "Could not get tag in aesEncrypt()\n");
         return false;
     }
 

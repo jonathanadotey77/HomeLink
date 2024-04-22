@@ -13,13 +13,16 @@ extern "C"
     {
         int controlSocket;
         int dataSocket;
-        char serverAddressStr[64];
-        struct sockaddr_in6 serverAddress;
-        struct sockaddr_in6 controlAddress;
-        struct sockaddr_in6 dataAddress;
-        uint16_t serverPort;
+        char serverControlAddressStr[64];
+        struct sockaddr_in6 serverControlAddress;
+        struct sockaddr_in6 serverDataAddress;
+        struct sockaddr_in6 clientControlAddress;
+        struct sockaddr_in6 clientDataAddress;
+        uint16_t serverControlPort;
+        uint16_t serverDataPort;
         char serverPublicKey[512];
         char clientPublicKey[512];
+        uint8_t aesKey[32];
         char hostId[33];
         char serviceId[33];
         uint32_t connectionId;
@@ -31,6 +34,10 @@ extern "C"
     bool HomeLinkClient__login(HomeLinkClient *client, const char *password);
 
     void HomeLinkClient__logout(HomeLinkClient *client);
+
+    bool HomeLinkClient__readFile(HomeLinkClient* client, const char* directory);
+
+    bool HomeLinkClient__writeFile(HomeLinkClient* client, const char* localPath, const char* remotePath);
 
 #ifdef __cplusplus
 }

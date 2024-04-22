@@ -9,9 +9,6 @@
 #include <unordered_set>
 #include <vector>
 
-// Pair of keys
-// AES key and client's RSA public key
-
 static const size_t AES_KEY_LEN = 256;
 class KeySet
 {
@@ -27,6 +24,9 @@ private:
     std::unordered_set<uint32_t> tags;
     std::unordered_set<std::string> sessionKeys;
 
+    std::string hostId;
+    std::string serviceId;
+
 public:
     KeySet();
     KeySet(const KeySet& other);
@@ -36,10 +36,15 @@ public:
     KeySet& operator=(const KeySet& other);
 
     bool checkTag(uint32_t tag);
+    void setUser(const char* hostId, const char* serviceId);
+
     bool validSessionKey(const char* key) const;
     const char* newSessionKey();
-
     const char* getPublicKey() const;
+    uint8_t* getAesKey() const;
+
+    const std::string& getHostId() const;
+    const std::string& getServiceId() const;
 
 private:
 

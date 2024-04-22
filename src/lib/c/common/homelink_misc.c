@@ -1,6 +1,7 @@
 #include <homelink_misc.h>
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -16,7 +17,8 @@ static volatile bool foundIp = false;
 
 struct in6_addr getIpAddress()
 {
-    if(foundIp) {
+    if (foundIp)
+    {
         return localIpAddress;
     }
     struct ifaddrs *ifAddrStruct = NULL;

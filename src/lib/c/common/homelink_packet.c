@@ -1,7 +1,17 @@
 #include <homelink_packet.h>
 
 #include <arpa/inet.h>
+#include <endian.h>
+#include <netinet/in.h>
 #include <string.h>
+
+#if __BIG_ENDIAN
+# define htonll(x) (x)
+# define ntohll(x) (x)
+#else
+# define htonll(x) (((uint64_t)htonl((x) & 0xFFFFFFFF) << 32) | htonl((x) >> 32))
+# define ntohll(x) (((uint64_t)ntohl((x) & 0xFFFFFFFF) << 32) | ntohl((x) >> 32))
+#endif
 
 const int32_t CLIPacket_SIZE = sizeof(((CLIPacket){0}).packetType) + sizeof(((CLIPacket){0}).rsaPublicKey) + sizeof(((CLIPacket){0}).data);
 
@@ -14,6 +24,8 @@ void CLIPacket_serialize(uint8_t *buffer, const CLIPacket *packet)
     *packetType = packet->packetType;
     memcpy(rsaPublicKey, packet->rsaPublicKey, sizeof(packet->rsaPublicKey));
     memcpy(data, packet->data, sizeof(packet->data));
+
+    rsaPublicKey[sizeof(packet->rsaPublicKey)-1] = '\0';
 }
 void CLIPacket_deserialize(CLIPacket *packet, const uint8_t *buffer)
 {
@@ -24,6 +36,8 @@ void CLIPacket_deserialize(CLIPacket *packet, const uint8_t *buffer)
     packet->packetType = *packetType;
     memcpy(packet->rsaPublicKey, rsaPublicKey, sizeof(packet->rsaPublicKey));
     memcpy(packet->data, data, sizeof(packet->data));
+
+    packet->rsaPublicKey[sizeof(packet->rsaPublicKey)-1] = '\0';
 }
 
 const int32_t AckPacket_SIZE = sizeof(((AckPacket){0}).packetType) + sizeof(((AckPacket){0}).value);
@@ -57,6 +71,8 @@ void KeyRequestPacket_serialize(uint8_t *buffer, const KeyRequestPacket *packet)
     *packetType = packet->packetType;
     *connectionId = htonl(packet->connectionId);
     memcpy(rsaPublicKey, &packet->rsaPublicKey, sizeof(packet->rsaPublicKey));
+
+    rsaPublicKey[sizeof(packet->rsaPublicKey)-1] = '\0';
 }
 
 void KeyRequestPacket_deserialize(KeyRequestPacket *packet, const uint8_t *buffer)
@@ -68,6 +84,8 @@ void KeyRequestPacket_deserialize(KeyRequestPacket *packet, const uint8_t *buffe
     packet->packetType = *packetType;
     packet->connectionId = ntohl(*connectionId);
     memcpy(packet->rsaPublicKey, rsaPublicKey, sizeof(packet->rsaPublicKey));
+
+    packet->rsaPublicKey[sizeof(packet->rsaPublicKey)-1] = '\0';
 }
 
 const int32_t KeyResponsePacket_SIZE = sizeof(((KeyResponsePacket){0}).packetType) + sizeof(((KeyResponsePacket){0}).success) + sizeof(((KeyResponsePacket){0}).rsaPublicKey) + sizeof(((KeyResponsePacket){0}).aesKey);
@@ -83,6 +101,8 @@ void KeyResponsePacket_serialize(uint8_t *buffer, const KeyResponsePacket *packe
     *success = packet->success;
     memcpy(rsaPublicKey, &packet->rsaPublicKey, sizeof(packet->rsaPublicKey));
     memcpy(aesKey, &packet->aesKey, sizeof(packet->aesKey));
+
+    rsaPublicKey[sizeof(packet->rsaPublicKey)-1] = '\0';
 }
 
 void KeyResponsePacket_deserialize(KeyResponsePacket *packet, const uint8_t *buffer)
@@ -96,27 +116,33 @@ void KeyResponsePacket_deserialize(KeyResponsePacket *packet, const uint8_t *buf
     packet->success = *success;
     memcpy(packet->rsaPublicKey, rsaPublicKey, sizeof(packet->rsaPublicKey));
     memcpy(packet->aesKey, aesKey, sizeof(packet->aesKey));
+
+    packet->rsaPublicKey[sizeof(packet->rsaPublicKey)-1] = '\0';
 }
 
-const int32_t CommandPacket_SIZE = sizeof(((CommandPacket){0}).packetType) + sizeof(((CommandPacket){0}).sessionToken) + sizeof(((CommandPacket){0}).data);
+const int32_t CommandPacket_SIZE = sizeof(((CommandPacket){0}).packetType) + sizeof(((CommandPacket){0}).connectionId) + sizeof(((CommandPacket){0}).sessionToken) + sizeof(((CommandPacket){0}).data);
 
 void CommandPacket_serialize(uint8_t *buffer, const CommandPacket *packet)
 {
     uint8_t *packetType = (uint8_t *)(buffer);
-    uint8_t *sessionToken = (uint8_t *)(buffer + sizeof(packet->packetType));
-    uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->sessionToken));
+    uint32_t *connectionId = (uint32_t*)(buffer + sizeof(packet->packetType));
+    uint8_t *sessionToken = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
+    uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType)+ sizeof(packet->connectionId) + sizeof(packet->sessionToken));
 
     *packetType = packet->packetType;
+    *connectionId = htonl(packet->connectionId);
     memcpy(sessionToken, packet->sessionToken, sizeof(packet->sessionToken));
     memcpy(data, packet->data, sizeof(packet->data));
 }
 void CommandPacket_deserialize(CommandPacket *packet, const uint8_t *buffer)
 {
     const uint8_t *packetType = (const uint8_t *)(buffer);
-    const uint8_t *sessionToken = (const uint8_t *)(buffer + sizeof(packet->packetType));
-    const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->sessionToken));
+    const uint32_t *connectionId = (const uint32_t*)(buffer + sizeof(packet->packetType));
+    const uint8_t *sessionToken = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
+    const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType)+ sizeof(packet->connectionId) + sizeof(packet->sessionToken));
 
     packet->packetType = *packetType;
+    packet->connectionId = ntohl(*connectionId);
     memcpy(packet->sessionToken, sessionToken, sizeof(packet->sessionToken));
     memcpy(packet->data, data, sizeof(packet->data));
 }
@@ -128,7 +154,7 @@ void LoginRequestPacket_serialize(uint8_t *buffer, const LoginRequestPacket *pac
     uint8_t *packetType = (uint8_t *)(buffer);
     uint32_t *connectionId = (uint32_t *)(buffer + sizeof(packet->packetType));
     char *hostId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
-    char* serviceId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
+    char *serviceId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
     uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId) + sizeof(packet->serviceId));
 
     *packetType = packet->packetType;
@@ -136,6 +162,9 @@ void LoginRequestPacket_serialize(uint8_t *buffer, const LoginRequestPacket *pac
     memcpy(hostId, packet->hostId, sizeof(packet->hostId));
     memcpy(serviceId, packet->serviceId, sizeof(packet->serviceId));
     memcpy(data, packet->data, sizeof(packet->data));
+
+    hostId[sizeof(packet->hostId)-1] = '\0';
+    serviceId[sizeof(packet->hostId)-1] = '\0';
 }
 
 void LoginRequestPacket_deserialize(LoginRequestPacket *packet, const uint8_t *buffer)
@@ -143,7 +172,7 @@ void LoginRequestPacket_deserialize(LoginRequestPacket *packet, const uint8_t *b
     const uint8_t *packetType = (const uint8_t *)(buffer);
     const uint32_t *connectionId = (const uint32_t *)(buffer + sizeof(packet->packetType));
     const char *hostId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
-    const char* serviceId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
+    const char *serviceId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
     const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId) + sizeof(packet->serviceId));
 
     packet->packetType = *packetType;
@@ -151,6 +180,9 @@ void LoginRequestPacket_deserialize(LoginRequestPacket *packet, const uint8_t *b
     memcpy(packet->hostId, hostId, sizeof(packet->hostId));
     memcpy(packet->serviceId, serviceId, sizeof(packet->serviceId));
     memcpy(packet->data, data, sizeof(packet->data));
+
+    packet->hostId[sizeof(packet->hostId)-1] = '\0';
+    packet->serviceId[sizeof(packet->hostId)-1] = '\0';
 }
 
 const int32_t LoginResponsePacket_SIZE = sizeof(((LoginResponsePacket){0}).packetType) + sizeof(((LoginResponsePacket){0}).packetType) + sizeof(((LoginResponsePacket){0}).sessionKey);
@@ -184,7 +216,7 @@ void RegisterRequestPacket_serialize(uint8_t *buffer, const RegisterRequestPacke
     uint8_t *packetType = (uint8_t *)(buffer);
     uint32_t *connectionId = (uint32_t *)(buffer + sizeof(packet->packetType));
     char *hostId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
-    char* serviceId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
+    char *serviceId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
     uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId) + sizeof(packet->serviceId));
 
     *packetType = packet->packetType;
@@ -192,6 +224,9 @@ void RegisterRequestPacket_serialize(uint8_t *buffer, const RegisterRequestPacke
     memcpy(hostId, packet->hostId, sizeof(packet->hostId));
     memcpy(serviceId, packet->serviceId, sizeof(packet->serviceId));
     memcpy(data, packet->data, sizeof(packet->data));
+
+    hostId[sizeof(packet->hostId)-1] = '\0';
+    serviceId[sizeof(packet->hostId)-1] = '\0';
 }
 
 void RegisterRequestPacket_deserialize(RegisterRequestPacket *packet, const uint8_t *buffer)
@@ -199,7 +234,7 @@ void RegisterRequestPacket_deserialize(RegisterRequestPacket *packet, const uint
     const uint8_t *packetType = (const uint8_t *)(buffer);
     const uint32_t *connectionId = (const uint32_t *)(buffer + sizeof(packet->packetType));
     const char *hostId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
-    const char* serviceId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
+    const char *serviceId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
     const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId) + sizeof(packet->serviceId));
 
     packet->packetType = *packetType;
@@ -207,6 +242,8 @@ void RegisterRequestPacket_deserialize(RegisterRequestPacket *packet, const uint
     memcpy(packet->hostId, hostId, sizeof(packet->hostId));
     memcpy(packet->serviceId, serviceId, sizeof(packet->serviceId));
     memcpy(packet->data, data, sizeof(packet->data));
+    packet->hostId[sizeof(packet->hostId)-1] = '\0';
+    packet->serviceId[sizeof(packet->hostId)-1] = '\0';
 }
 
 const int32_t RegisterResponsePacket_SIZE = sizeof(((RegisterResponsePacket){0}).packetType) + sizeof(((RegisterResponsePacket){0}).status);
@@ -231,7 +268,8 @@ void RegisterResponsePacket_deserialize(RegisterResponsePacket *packet, const ui
 
 const int32_t LogoutPacket__SIZE = sizeof(((LogoutPacket){0}).packetType) + sizeof(((LogoutPacket){0}).connectionId) + sizeof(((LogoutPacket){0}).sessionKey);
 
-void LogoutPacket_serialize(uint8_t *buffer, const LogoutPacket *packet) {
+void LogoutPacket_serialize(uint8_t *buffer, const LogoutPacket *packet)
+{
     uint8_t *packetType = (uint8_t *)(buffer);
     uint32_t *connectionId = (uint32_t *)(buffer + sizeof(packet->packetType));
     uint8_t *sessionKey = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
@@ -241,7 +279,8 @@ void LogoutPacket_serialize(uint8_t *buffer, const LogoutPacket *packet) {
     memcpy(sessionKey, packet->sessionKey, sizeof(packet->sessionKey));
 }
 
-void LogoutPacket_deserialize(LogoutPacket *packet, const uint8_t *buffer) {
+void LogoutPacket_deserialize(LogoutPacket *packet, const uint8_t *buffer)
+{
     const uint8_t *packetType = (const uint8_t *)(buffer);
     const uint32_t *connectionId = (const uint32_t *)(buffer + sizeof(packet->packetType));
     const uint8_t *sessionKey = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
@@ -249,4 +288,56 @@ void LogoutPacket_deserialize(LogoutPacket *packet, const uint8_t *buffer) {
     packet->packetType = *packetType;
     packet->connectionId = ntohl(*connectionId);
     memcpy(packet->sessionKey, sessionKey, sizeof(packet->sessionKey));
+}
+
+const int32_t FileReadRequestPacket__SIZE = sizeof(((FileReadRequestPacket){0}).packetType) + sizeof(((FileReadRequestPacket){0}).connectionId) + sizeof(((FileReadRequestPacket){0}).sessionKey);;
+
+void FileReadRequestPacket_serialize(uint8_t *buffer, const FileReadRequestPacket *packet)
+{
+    uint8_t *packetType = (uint8_t *)(buffer);
+    uint32_t *connectionId = (uint32_t *)(buffer + sizeof(packet->packetType));
+    uint8_t *sessionKey = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
+
+    *packetType = packet->packetType;
+    *connectionId = htonl(packet->connectionId);
+    memcpy(sessionKey, packet->sessionKey, sizeof(packet->sessionKey));
+}
+
+void FileReadRequestPacket_deserialize(FileReadRequestPacket *packet, const uint8_t *buffer)
+{
+    const uint8_t *packetType = (const uint8_t *)(buffer);
+    const uint32_t *connectionId = (const uint32_t *)(buffer + sizeof(packet->packetType));
+    const uint8_t *sessionKey = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
+
+    packet->packetType = *packetType;
+    packet->connectionId = ntohl(*connectionId);
+    memcpy(packet->sessionKey, sessionKey, sizeof(packet->sessionKey));
+}
+
+const int32_t FileReadResponsePacket__SIZE = sizeof(((FileReadResponsePacket){0}).packetType) + sizeof(((FileReadResponsePacket){0}).status) + sizeof(((FileReadResponsePacket){0}).fileSize) + sizeof(((FileReadResponsePacket){0}).serverPort);
+
+void FileReadResponsePacket_serialize(uint8_t *buffer, const FileReadResponsePacket *packet)
+{
+    uint8_t *packetType = (uint8_t *)(buffer);
+    uint8_t *status = (uint8_t *)(buffer + sizeof(packet->packetType));
+    uint64_t *fileSize = (uint64_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->status));
+    uint16_t *serverPort = (uint16_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->status) + sizeof(packet->fileSize));
+
+    *packetType = packet->packetType;
+    *status = packet->status;
+    *fileSize = htonll(packet->fileSize);
+    *serverPort = htons(packet->serverPort);
+}
+
+void FileReadResponsePacket_deserialize(FileReadResponsePacket *packet, const uint8_t *buffer)
+{
+    const uint8_t *packetType = (const uint8_t *)(buffer);
+    const uint8_t *status = (const uint8_t *)(buffer + sizeof(packet->packetType));
+    const uint64_t *fileSize = (const uint64_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->status));
+    const uint16_t *serverPort = (const uint16_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->status) + sizeof(packet->fileSize));
+
+    packet->packetType = *packetType;
+    packet->status = *status;
+    packet->fileSize = ntohll(*fileSize);
+    packet->serverPort = ntohs(*serverPort);
 }
