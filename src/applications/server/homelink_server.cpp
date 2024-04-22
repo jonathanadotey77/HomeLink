@@ -786,8 +786,6 @@ void *clientThread(void *a)
         fprintf(stderr, "sendto() failed [%d]\n", errno);
     }
 
-    close(sd);
-
     return NULL;
 }
 
