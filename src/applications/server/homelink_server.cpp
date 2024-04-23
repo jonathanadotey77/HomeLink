@@ -997,7 +997,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    std::cout << "HomeLink server listening on port " << controlPort << std::endl;
+    std::cout << "HomeLink server listening on ports " << dataPort << " (TCP) and " << controlPort << " (UDP)" << std::endl;
 
     pthread_join(commandThreadId, NULL);
     pthread_join(controlThreadId, NULL);
