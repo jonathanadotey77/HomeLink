@@ -951,7 +951,7 @@ bool start()
         fprintf(stderr, "bind() failed [%d]\n", errno);
         close(controlSocket);
         cleanSecurity();
-        return NULL;
+        return false;
     }
 
     if (bind(dataSocket, reinterpret_cast<const struct sockaddr *>(&dataAddress), sizeof(dataAddress)) < 0)
@@ -960,7 +960,7 @@ bool start()
         close(controlSocket);
         close(commandSocket);
         cleanSecurity();
-        return NULL;
+        return false;
     }
 
     signal(SIGTSTP, terminationHandler);
