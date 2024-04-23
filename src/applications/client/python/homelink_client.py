@@ -299,11 +299,9 @@ def hashString(string: str):
 class HomeLinkClient:
     def __init__(self):
         self.controlSocket = None
-        self.dataSocket = None
         self.serverUdpAddress = [None, None]
         self.serverTcpAddress = [None, None]
         self.controlAddress = [None, None]
-        self.dataAddress = [None, None]
         self.serverPort = None
         self.serverPublicKey = None
         self.clientPublicKey = None
@@ -331,24 +329,14 @@ class HomeLinkClient:
         self.serverTcpAddress = tuple(self.serverTcpAddress)
         self.serverUdpAddress = tuple(self.serverUdpAddress)
         self.controlSocket = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-        self.dataSocket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-        
-        self.dataSocket.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
-        self.dataSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.dataSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        
         self.controlAddress = ("::0.0.0.0", random.randint(50000, 59999))
-        self.dataAddress = ("::0.0.0.0", random.randint(50000, 59999))
         self.controlSocket.bind(self.controlAddress)
-        self.dataSocket.bind(self.dataAddress)
         self.controlSocket.settimeout(3)
-        self.dataSocket.settimeout(1)
         self.controlSocket.connect(tuple(self.serverUdpAddress))
         self.clientPublicKey = getRSAPublicKey()
     
     def shutdown(self):
         self.controlSocket.close()
-        self.dataSocket.close()
     
     def login(self, password: str):
         connectionId = 0
@@ -407,14 +395,14 @@ class HomeLinkClient:
         self.connectionId = connectionId
         return connectionId
     
-    def sendBufferTcp(self, buffer: bytearray):
+    def sendBufferTcp(self, dataSocket: socket.socket, buffer: bytearray):
         bytesSent = 0
         
         for _ in range(10):
             if bytesSent >= len(buffer):
                 break
             
-            rc = self.dataSocket.send(buffer[bytesSent:])
+            rc = dataSocket.send(buffer[bytesSent:])
             
             if rc < 0:
                 print(f"send() failed [{socket.error}]")
@@ -423,7 +411,7 @@ class HomeLinkClient:
             bytesSent += rc
         return bytesSent == len(buffer)
     
-    def receiveBufferTcp(self, n: int):
+    def receiveBufferTcp(self, dataSocket: socket.socket, n: int):
         bytesReceived = 0
         buffer = bytearray()
         
@@ -432,7 +420,7 @@ class HomeLinkClient:
                 break
             data = None
             try:
-                data = self.dataSocket.recv(n - bytesReceived)
+                data = dataSocket.recv(n - bytesReceived)
             except socket.timeout:
                 print(bytesReceived)
                 continue
@@ -446,9 +434,10 @@ class HomeLinkClient:
         return buffer
 
     def sendFile(self, destinationHostId: str, destinationServiceId: str, filepath: str, filename: str):
-        self.dataSocket.connect(self.serverTcpAddress)
+        dataSocket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        dataSocket.connect(self.serverTcpAddress)
         fileSize = os.stat(filepath).st_size
-        self.sendCommand(f"WRITE_FILE {destinationHostId} {destinationServiceId} {filename} {fileSize}")
+        self.sendCommand(dataSocket, f"WRITE_FILE {destinationHostId} {destinationServiceId} {filename} {fileSize}")
         fileInfo = bytearray(f"{filename} {fileSize}".encode("UTF-8"))
         if(len(fileInfo) < 128):
             fileInfo.extend(bytearray(128-len(fileInfo)))
@@ -462,7 +451,7 @@ class HomeLinkClient:
         
         self.sendBufferTcp(sendBuffer)
         
-        recvBuffer = self.receiveBufferTcp(17)
+        recvBuffer = self.receiveBufferTcp(dataSocket, 17)
         if recvBuffer == None:
             return
         
@@ -475,12 +464,12 @@ class HomeLinkClient:
                 iv = recvBuffer[1:]
                 sendBuffer, tag = aesEncrypt(fileData, self.aesKey, iv)
                 sendBuffer.extend(tag)
-                status = self.sendBufferTcp(sendBuffer)
+                status = self.sendBufferTcp(dataSocket, sendBuffer)
                 if not status:
                     print(f"sendBufferTcp() failed")
                     break
                 
-                recvBuffer = self.receiveBufferTcp(17)
+                recvBuffer = self.receiveBufferTcp(dataSocket, 17)
                 if recvBuffer == None:
                     print(f"recvBufferTcp() failed")
                     break
@@ -490,15 +479,15 @@ class HomeLinkClient:
                     if len(fileData) < FILE_BLOCK_SIZE:
                         fileData.extend(bytearray(FILE_BLOCK_SIZE - len(fileData)))
             
-        self.dataSocket.close()
-        self.dataSocket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        dataSocket.close()
                 
     def recvFile(self, prefix: str, display: bool):
-        self.dataSocket.connect(self.serverTcpAddress)
+        dataSocket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        dataSocket.connect(self.serverTcpAddress)
         
-        self.sendCommand("READ_FILE")
+        self.sendCommand(dataSocket, "READ_FILE")
         
-        info = self.receiveBufferTcp(1)
+        info = self.receiveBufferTcp(dataSocket, 1)
         
         if not info:
             print("recvBufferTcp() failed")
@@ -507,7 +496,7 @@ class HomeLinkClient:
         if info[0] == 0:
             return ""
         
-        fileInfo = self.receiveBufferTcp(160)
+        fileInfo = self.receiveBufferTcp(dataSocket, 160)
         if not fileInfo:
             print("Could not fetch file info")
             return None
@@ -526,7 +515,7 @@ class HomeLinkClient:
         filename, fileSize = fileInfo
         fileSize = int(fileSize)
         iv = randomBytes(16)
-        status = self.sendBufferTcp(bytearray(1) + iv)
+        status = self.sendBufferTcp(dataSocket, bytearray(1) + iv)
         if not status:
             print("Could not send first ACK")
             return None
@@ -539,7 +528,7 @@ class HomeLinkClient:
             blockNumber = 0
             
             while bytesReceived < fileSize:
-                buffer = self.receiveBufferTcp(FILE_BLOCK_SIZE + 16)
+                buffer = self.receiveBufferTcp(dataSocket, FILE_BLOCK_SIZE + 16)
                 if not buffer:
                     print("recvBufferTcp() failed")
                     success = False
@@ -558,7 +547,7 @@ class HomeLinkClient:
                     f.write(data[:numBytes])
                 
                 iv = randomBytes(16)
-                status = self.sendBufferTcp(bytearray(1) + iv)
+                status = self.sendBufferTcp(dataSocket, bytearray(1) + iv)
         
         
         if not success or bytesReceived < fileSize:
@@ -575,11 +564,10 @@ class HomeLinkClient:
                 except UnicodeDecodeError:
                     print("File is not in UTF-8 format")
         
-        self.dataSocket.close()
-        self.dataSocket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        dataSocket.close()
         return filePath
     
-    def sendCommand(self, command: str):
+    def sendCommand(self, dataSocket: socket.socket, command: str):
         sessionToken = rsaEncrypt(self.sessionToken.encode("UTF-8"), self.serverPublicKey)
         data = randomBytes(32)
         data.extend(command.encode("UTF-8"))
@@ -588,7 +576,7 @@ class HomeLinkClient:
         data = rsaEncrypt(data, self.serverPublicKey)
         commandPacket = CommandPacket(self.connectionId, sessionToken, data)
         buffer = CommandPacket.serialize(commandPacket)
-        self.sendBufferTcp(buffer)
+        self.sendBufferTcp(dataSocket, buffer)
         
 
 def main():
