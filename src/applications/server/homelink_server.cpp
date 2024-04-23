@@ -921,7 +921,7 @@ bool start()
         close(controlSocket);
         close(dataSocket);
         fprintf(stderr, "socket() failed [%d]\n", errno);
-        return NULL;
+        return false;
     }
 
     controlAddress.sin6_family = AF_INET6;
