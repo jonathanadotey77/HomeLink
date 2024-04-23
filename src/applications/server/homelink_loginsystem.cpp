@@ -3,6 +3,7 @@
 #include <homelink_misc.h>
 #include <homelink_security.h>
 
+#include <filesystem>
 #include <string.h>
 
 typedef struct LoginStruct
@@ -37,6 +38,13 @@ static int loginCallback(void *data, int, char **argv, char **)
 const std::string LoginSystem::LOGIN_FILE = std::string(getenv("HOMELINK_ROOT")) + "/login/login.db";
 bool LoginSystem::start()
 {
+    FILE* fp = fopen(LOGIN_FILE.c_str(), "rb");
+    if(fp == NULL) {
+        fp = fopen(LOGIN_FILE.c_str(), "wb");
+        fclose(fp);
+    } else {
+        fclose(fp);
+    }
     int rc = sqlite3_open(LOGIN_FILE.c_str(), &dbHandle);
     if (rc)
     {
