@@ -18,7 +18,6 @@ else
     mkdir $HOMELINK_ROOT/config/ >/dev/null 2>&1
     if [ ! -f $HOMELINK_ROOT/config/cli_config.conf ]; then
         touch $HOMELINK_ROOT/config/cli_config.conf
-        echo "host_id JON" >> $HOMELINK_ROOT/config/cli_config.conf
         echo "server_address 192.168.1.1" >> $HOMELINK_ROOT/config/cli_config.conf
         echo "server_control_port 10000" >> $HOMELINK_ROOT/config/cli_config.conf
         echo "server_data_port 10001" >> $HOMELINK_ROOT/config/cli_config.conf
@@ -32,6 +31,3 @@ current_directory=$(pwd)
 $HOMELINK_ROOT/build/applications/homelink_cli $@
 
 cd $current_directory
-
-unset $HOMELINK_CLI_CONFIG_PATH
-unset $HOMELINK_ROOT

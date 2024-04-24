@@ -14,7 +14,7 @@ typedef struct HomeLinkConfig {
 } HomeLinkConfig;
 
 bool readConfig(HomeLinkConfig* config, const char* configFilePath) {
-
+    memset(config, 0, sizeof(HomeLinkConfig));
     FILE *file = fopen(configFilePath, "r");
     if (file == NULL)
     {
