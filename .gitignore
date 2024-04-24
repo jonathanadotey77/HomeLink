@@ -1,0 +1,11 @@
+*CMakeCache*
+*CMakeFiles*
+filesystem/
+login/
+config/
+notes.txt
+*.cmake*
+*Makefile*
+build/
+*.egg-info*
+daemon_files/
