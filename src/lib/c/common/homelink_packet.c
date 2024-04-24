@@ -5,14 +5,6 @@
 #include <netinet/in.h>
 #include <string.h>
 
-#if __BIG_ENDIAN
-#define htonll(x) (x)
-#define ntohll(x) (x)
-#else
-#define htonll(x) (((uint64_t)htonl((x) & 0xFFFFFFFF) << 32) | htonl((x) >> 32))
-#define ntohll(x) (((uint64_t)ntohl((x) & 0xFFFFFFFF) << 32) | ntohl((x) >> 32))
-#endif
-
 const int32_t CLIPacket_SIZE = sizeof(((CLIPacket){0}).packetType) + sizeof(((CLIPacket){0}).rsaPublicKey) + sizeof(((CLIPacket){0}).data);
 
 void CLIPacket_serialize(uint8_t *buffer, const CLIPacket *packet)

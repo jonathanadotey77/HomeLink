@@ -25,13 +25,6 @@ extern "C"
         e_FileReadResponse = 11
     } HomeLinkPacketType;
 
-    typedef enum FileReadRequestStatus
-    {
-        e_Empty = 0,
-        e_Available = 1,
-        e_NoPort = 2
-    } FileReadRequestStatus;
-
     // UDP localhost only
     typedef struct CLIPacket
     {
@@ -43,6 +36,7 @@ extern "C"
     void CLIPacket_serialize(uint8_t *buffer, const CLIPacket *packet);
     void CLIPacket_deserialize(CLIPacket *packet, const uint8_t *buffer);
 
+    // UDP
     typedef struct AckPacket
     {
         uint8_t packetType;
@@ -52,6 +46,7 @@ extern "C"
     void AckPacket_serialize(uint8_t *buffer, const AckPacket *packet);
     void AckPacket_deserialize(AckPacket *packet, const uint8_t *buffer);
 
+    // UDP
     typedef struct KeyRequestPacket
     {
         uint8_t packetType;
@@ -62,6 +57,7 @@ extern "C"
     void KeyRequestPacket_serialize(uint8_t *buffer, const KeyRequestPacket *packet);
     void KeyRequestPacket_deserialize(KeyRequestPacket *packet, const uint8_t *buffer);
 
+    // UDP
     typedef struct KeyResponsePacket
     {
         uint8_t packetType;
@@ -73,6 +69,7 @@ extern "C"
     void KeyResponsePacket_serialize(uint8_t *buffer, const KeyResponsePacket *packet);
     void KeyResponsePacket_deserialize(KeyResponsePacket *packet, const uint8_t *buffer);
 
+    // TCP
     typedef struct CommandPacket
     {
         uint8_t packetType;
@@ -84,6 +81,7 @@ extern "C"
     void CommandPacket_serialize(uint8_t *buffer, const CommandPacket *packet);
     void CommandPacket_deserialize(CommandPacket *packet, const uint8_t *buffer);
 
+    // UDP
     typedef struct LoginRequestPacket
     {
         uint8_t packetType;
@@ -96,6 +94,7 @@ extern "C"
     void LoginRequestPacket_serialize(uint8_t *buffer, const LoginRequestPacket *packet);
     void LoginRequestPacket_deserialize(LoginRequestPacket *packet, const uint8_t *buffer);
 
+    // UDP
     typedef struct LoginResponsePacket
     {
         uint8_t packetType;
@@ -106,6 +105,7 @@ extern "C"
     void LoginResponsePacket_serialize(uint8_t *buffer, const LoginResponsePacket *packet);
     void LoginResponsePacket_deserialize(LoginResponsePacket *packet, const uint8_t *buffer);
 
+    // UDP
     typedef struct RegisterRequestPacket
     {
         uint8_t packetType;
@@ -118,6 +118,7 @@ extern "C"
     void RegisterRequestPacket_serialize(uint8_t *buffer, const RegisterRequestPacket *packet);
     void RegisterRequestPacket_deserialize(RegisterRequestPacket *packet, const uint8_t *buffer);
 
+    // UDP
     typedef struct RegisterResponsePacket
     {
         uint8_t packetType;
@@ -127,6 +128,7 @@ extern "C"
     void RegisterResponsePacket_serialize(uint8_t *buffer, const RegisterResponsePacket *packet);
     void RegisterResponsePacket_deserialize(RegisterResponsePacket *packet, const uint8_t *buffer);
 
+    // UDP
     typedef struct LogoutPacket
     {
         uint8_t packetType;
@@ -136,30 +138,6 @@ extern "C"
     extern const int32_t LogoutPacket__SIZE;
     void LogoutPacket_serialize(uint8_t *buffer, const LogoutPacket *packet);
     void LogoutPacket_deserialize(LogoutPacket *packet, const uint8_t *buffer);
-
-    typedef struct FileReadRequestPacket
-    {
-        uint8_t packetType;
-        uint32_t connectionId;
-        uint8_t sessionKey[256];
-        uint16_t clientPort;
-    } FileReadRequestPacket;
-
-    extern const int32_t FileReadRequestPacket__SIZE;
-    void FileReadRequestPacket_serialize(uint8_t *buffer, const FileReadRequestPacket *packet);
-    void FileReadRequestPacket_deserialize(FileReadRequestPacket *packet, const uint8_t *buffer);
-
-    typedef struct FileReadResponsePacket
-    {
-        uint8_t packetType;
-        uint8_t status;
-        uint64_t fileSize;
-        uint16_t serverPort;
-    } FileReadResponsePacket;
-
-    extern const int32_t FileReadResponsePacket__SIZE;
-    void FileReadResponsePacket_serialize(uint8_t *buffer, const FileReadResponsePacket *packet);
-    void FileReadResponsePacket_deserialize(FileReadResponsePacket *packet, const uint8_t *buffer);
 
 #ifdef __cplusplus
 }

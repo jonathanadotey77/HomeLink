@@ -1,0 +1,23 @@
+# Set HOMELINK_ROOT
+SOURCE=${BASH_SOURCE[0]}
+HOMELINK_ROOT_DIR=''
+while [ -L "$SOURCE" ]; do
+  HOMELINK_ROOT_DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+  SOURCE=$(readlink "$SOURCE")
+  [[ $SOURCE != /* ]] && SOURCE=$HOMELINK_ROOT_DIR/$SOURCE 
+done
+
+HOMELINK_ROOT_DIR=($( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd ))
+HOMELINK_ROOT_DIR=$(dirname $HOMELINK_ROOT_DIR)
+
+export HOMELINK_ROOT=$HOMELINK_ROOT_DIR
+
+# Run cmake
+
+current_directory=$(pwd)
+
+cd $HOMELINK_ROOT
+
+cmake -S . -B build/ && cmake --build build/ --target homelink_daemon
+
+cd $current_directory

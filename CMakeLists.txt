@@ -20,8 +20,5 @@ execute_process(
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_SOURCE_DIR}/temp_files
 )
 
-
-file(COPY src/applications/client/python/homelink_client.py DESTINATION ${CMAKE_BINARY_DIR}/applications/)
-
 add_subdirectory(src/applications)
 add_subdirectory(src/lib/c)
