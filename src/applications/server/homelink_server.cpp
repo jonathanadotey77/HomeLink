@@ -1,6 +1,5 @@
 #include <homelink_filequeue.h>
 #include <homelink_keyset.h>
-#include <homelink_loginstatus.h>
 #include <homelink_loginsystem.h>
 #include <homelink_misc.h>
 #include <homelink_net.h>

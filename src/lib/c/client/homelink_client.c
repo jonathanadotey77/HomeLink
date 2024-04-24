@@ -1,6 +1,5 @@
 #include <homelink_client.h>
 
-#include <homelink_loginstatus.h>
 #include <homelink_misc.h>
 #include <homelink_net.h>
 #include <homelink_packet.h>

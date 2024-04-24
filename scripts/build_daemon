@@ -18,6 +18,6 @@ current_directory=$(pwd)
 
 cd $HOMELINK_ROOT
 
-cmake -S . -B build/ && cmake --build build/ --target homelink_daemon
+cmake -S . -B build/ -DCMAKE_BUILD_TYPE=Release && cmake --build build/ --target homelink_daemon
 
 cd $current_directory

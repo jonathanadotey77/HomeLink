@@ -1,7 +1,7 @@
 #ifndef HOMELINK_LOGINSYSTEM_H
 #define HOMELINK_LOGINSYSTEM_H
 
-#include <homelink_loginstatus.h>
+#include <homelink_packet.h>
 
 #include <fstream>
 #include <sqlite3.h>
