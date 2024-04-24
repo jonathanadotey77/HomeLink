@@ -28,7 +28,7 @@ extern "C"
         char sessionKey[256];
     } HomeLinkClient;
 
-    bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId);
+    bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, int argc, char** argv);
 
     bool HomeLinkClient__login(HomeLinkClient *client, const char *password);
 

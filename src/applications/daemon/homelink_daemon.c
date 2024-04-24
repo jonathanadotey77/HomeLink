@@ -55,7 +55,7 @@ void run()
     }
 }
 
-int main()
+int main(int argc, char** argv)
 {
     if (!initializeSecurity())
     {
@@ -81,7 +81,7 @@ int main()
     }
     daemonDirectory[strlen(daemonDirectory)] = '/';
 
-    if (!HomeLinkClient__initialize(&client, "DAEMON"))
+    if (!HomeLinkClient__initialize(&client, "DAEMON", argc-1, argv + 1))
     {
         cleanSecurity();
         return 1;

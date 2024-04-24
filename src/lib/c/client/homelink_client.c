@@ -7,6 +7,7 @@
 #include <homelink_security.h>
 
 #include <arpa/inet.h>
+#include <ctype.h>
 #include <errno.h>
 #include <sys/stat.h>
 #include <stdint.h>
@@ -39,93 +40,123 @@ static void HomeLinkClient__sendCommand(int sd, HomeLinkClient *client, const ch
     sendBufferTcp(sd, buffer, sizeof(buffer));
 }
 
-bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId)
+bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, int argc, char **argv)
 {
     memset(client, 0, sizeof(HomeLinkClient));
     client->serverControlPort = 0;
-    const char *configFilePath = getenv("HOMELINK_CONFIG_PATH");
+    client->serverDataPort = 0;
 
-    if (!configFilePath)
+    for (int i = 0; i < argc; ++i)
     {
-        fprintf(stderr, "HOMELINK_CONFIG_PATH not set\n");
-        return false;
-    }
+        char arg[128] = {0};
+        strncpy(arg, argv[i], sizeof(arg) - 1);
 
-    FILE *file = fopen(configFilePath, "r");
-    if (file == NULL)
-    {
-        fprintf(stderr, "Could not open config file\n");
-        return false;
-    }
-
-    char line[1024];
-    char *key, *value;
-
-    while (fgets(line, sizeof(line), file) != NULL)
-    {
-        key = strtok(line, " ");
-        value = strtok(NULL, " ");
-
-        if (value != NULL)
+        char *token = strtok(arg, "=");
+        if (token == NULL)
         {
-            value[strcspn(value, "\n")] = '\0';
+            continue;
         }
 
-        if (key != NULL && value != NULL)
+        const char *hostId = "--host-id";
+        const size_t hostIdLen = strlen(hostId);
+
+        const char *serverIpAddress = "--server-address";
+        const size_t serverIpAddressLen = strlen(serverIpAddress);
+
+        const char *serverControlPort = "--server-control-port";
+        const size_t serverControlPortLen = strlen(serverControlPort);
+
+        const char *serverDataPort = "--server-data-port";
+        const size_t serverDataPortLen = strlen(serverDataPort);
+
+        if (strlen(token) == hostIdLen && strncmp(token, hostId, hostIdLen) == 0)
         {
-            if (strncmp(key, "host_id", sizeof("host_id") - 1) == 0)
-            {
-                strncpy(client->hostId, value, sizeof(client->hostId));
+            char* field = strtok(NULL, "=");
+            if(field == NULL || strlen(field) == 0) {
+                fprintf(stderr, "Field for %s cannot be empty\n", token);
+                return false;
             }
-            else if (strncmp(key, "server_address", sizeof("server_address") - 1) == 0)
-            {
-                strncpy(client->serverControlAddressStr, value, sizeof(client->serverControlAddressStr));
+            strncpy(client->hostId, field, sizeof(client->hostId)-1);
+        }
+
+        else if (strlen(token) == serverIpAddressLen && strncmp(token, serverIpAddress, serverIpAddressLen) == 0)
+        {
+            char* field = strtok(NULL, "=");
+            if(field == NULL || strlen(field) == 0) {
+                fprintf(stderr, "Field for %s cannot be empty\n", token);
+                return false;
             }
-            else if (strncmp(key, "server_control_port", sizeof("server_control_port") - 1) == 0)
-            {
-                client->serverControlPort = (uint16_t)atoi(value);
-                if (client->serverControlPort == 0)
-                {
-                    fprintf(stderr, "Server port cannot be zero\n");
-                    fclose(file);
+
+            strncpy(client->serverControlAddressStr, field, sizeof(client->serverControlAddressStr));
+        }
+
+        else if (strlen(token) == serverControlPortLen && strncmp(token, serverControlPort, serverControlPortLen) == 0)
+        {
+            char* field = strtok(NULL, "=");
+            if(field == NULL || strlen(field) == 0) {
+                fprintf(stderr, "Field for %s cannot be empty\n", token);
+                return false;
+            }
+
+            for(char* p = field; *p != '\0'; ++p) {
+                if(!isdigit(*p)) {
+                    fprintf(stderr, "Invalid value for %s\n", token);
                     return false;
                 }
             }
-            else if (strncmp(key, "server_data_port", sizeof("server_data_port") - 1) == 0)
-            {
-                client->serverDataPort = (uint16_t)atoi(value);
-                if (client->serverDataPort == 0)
-                {
-                    fprintf(stderr, "Server port cannot be zero\n");
-                    fclose(file);
+
+            int i = atoi(field);
+            if(i == 0 || i >= UINT16_MAX) {
+                fprintf(stderr, "Invalid value for %s\n", token);
+                return false;
+            }
+
+            client->serverControlPort = (uint16_t)i;
+        }
+
+        else if (strlen(token) == serverDataPortLen && strncmp(token, serverDataPort, serverDataPortLen) == 0)
+        {
+            char* field = strtok(NULL, "=");
+            if(field == NULL || strlen(field) == 0) {
+                fprintf(stderr, "Field for %s cannot be empty\n", token);
+                return false;
+            }
+
+            for(char* p = field; *p != '\0'; ++p) {
+                if(!isdigit(*p)) {
+                    fprintf(stderr, "Invalid value for %s\n", token);
                     return false;
                 }
             }
+
+            int i = atoi(field);
+            if(i == 0 || i >= UINT16_MAX) {
+                fprintf(stderr, "Invalid value for %s\n", token);
+                return false;
+            }
+
+            client->serverDataPort = (uint16_t)i;
         }
     }
 
     if (client->serverControlAddressStr[0] == 0)
     {
-        fprintf(stderr, "Server address not found in config file\n");
-        fclose(file);
+        fprintf(stderr, "--server-address is a required argument for client intialization\n");
         return false;
     }
     if (client->hostId[0] == 0)
     {
-        fprintf(stderr, "Host ID not found in config file\n");
-        fclose(file);
+        fprintf(stderr, "--host-id is a required argument for client intialization\n");
         return false;
     }
     if (client->serverControlPort == 0)
     {
-        fprintf(stderr, "Server control port not found in config file\n");
-        fclose(file);
+        fprintf(stderr, "--control-port is a required argument for client intialization\n");
         return false;
     }
     if (client->serverDataPort == 0)
     {
-        fprintf(stderr, "Server data port not found in config file\n");
-        fclose(file);
+        fprintf(stderr, "--data-port is a required argument for client intialization\n");
         return false;
     }
 
@@ -141,8 +172,6 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId)
     client->serverDataAddress.sin6_port = htons(client->serverDataPort);
     client->serverDataAddress.sin6_flowinfo = 0;
     client->serverDataAddress.sin6_scope_id = 0;
-
-    fclose(file);
 
     client->clientControlAddress.sin6_family = AF_INET6;
     client->clientControlAddress.sin6_addr = in6addr_any;
