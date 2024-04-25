@@ -762,7 +762,7 @@ void *clientThread(void *a)
             }
 
             fs::create_directories(tempFileFolder);
-            char *filename = recvFile(sd, tempFilePrefix.c_str(), aesKey, true);
+            char *filename = recvFile(sd, tempFilePrefix.c_str(), aesKey, e_ServerRecv);
 
             if (filename != NULL)
             {

@@ -536,7 +536,7 @@ char *HomeLinkClient__readFile(HomeLinkClient *client, const char *directory)
         return (char *)calloc(1, 1);
     }
 
-    char *filePath = recvFile(sd, directory == NULL ? "" : directory, client->aesKey, false);
+    char *filePath = recvFile(sd, directory == NULL ? "" : directory, client->aesKey, e_ClientRecv);
 
     close(sd);
     sd = socket(AF_INET6, SOCK_STREAM, 0);

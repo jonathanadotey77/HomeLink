@@ -191,7 +191,7 @@ bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t 
     return status;
 }
 
-char *recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
+char *recvFile(int sd, const char *prefix, const uint8_t *aesKey, FileRecvMode mode)
 {
     uint8_t sendBuffer[17] = {0};
     uint8_t *iv = sendBuffer + 1;
@@ -217,13 +217,21 @@ char *recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
 
     // Parse filaneme and fileSize
     const char *filename = fileInfo;
-    if (collapse)
+    if (mode == e_ServerRecv)
     {
         for (uint32_t i = 0; i < sizeof(fileInfo); ++i)
         {
             if (fileInfo[i] == '/')
             {
                 fileInfo[i] = '+';
+            }
+        }
+    } else if(mode == e_ClientRecv) {
+        for (uint32_t i = 0; i < sizeof(fileInfo); ++i)
+        {
+            if (fileInfo[i] == '+')
+            {
+                fileInfo[i] = '/';
             }
         }
     }
@@ -266,7 +274,7 @@ char *recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
     FILE *fp = fopen(filePath, "wb");
     if (!fp)
     {
-        fprintf(stderr, "fopen() failed\n");
+        fprintf(stderr, "fopen() failed {%s}\n", filePath);
         free(filePath);
         return NULL;
     }

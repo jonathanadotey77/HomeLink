@@ -6,6 +6,13 @@ extern "C"
 {
 #endif
 
+    typedef enum FileRecvMode
+    {
+        e_Default = 0,
+        e_ServerRecv = 1,
+        e_ClientRecv = 2
+    } FileRecvMode;
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -15,7 +22,7 @@ extern "C"
 
     bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t *aesKey);
 
-    char *recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse);
+    char *recvFile(int sd, const char *prefix, const uint8_t *aesKey, FileRecvMode mode);
 
 #ifdef __cplusplus
 }
