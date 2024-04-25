@@ -15,15 +15,12 @@ export HOMELINK_ROOT=$HOMELINK_ROOT_DIR
 if [[ -v HOMELINK_CLI_CONFIG_PATH ]]; then
     export HOMELINK_CLI_CONFIG_PATH=$HOMELINK_CLI_CONFIG_PATH
 else
-    mkdir $HOMELINK_ROOT/config/ >/dev/null 2>&1
-    if [ ! -f $HOMELINK_ROOT/config/cli_config.conf ]; then
-        touch $HOMELINK_ROOT/config/cli_config.conf
-        echo "server_address 192.168.1.1" >> $HOMELINK_ROOT/config/cli_config.conf
-        echo "server_control_port 10000" >> $HOMELINK_ROOT/config/cli_config.conf
-        echo "server_data_port 10001" >> $HOMELINK_ROOT/config/cli_config.conf
+    mkdir $HOME/.homelink_config/ >/dev/null 2>&1
+    if [ ! -f $HOME/.homelink_config/cli_config.conf ]; then
+        touch $HOME/.homelink_config/cli_config.conf
     fi
 
-    export HOMELINK_CLI_CONFIG_PATH=$HOMELINK_ROOT/config/cli_config.conf
+    export HOMELINK_CLI_CONFIG_PATH=$HOME/.homelink_config/cli_config.conf
 fi
 
 current_directory=$(pwd)

@@ -144,6 +144,68 @@ bool editConfig(int argc, char** argv, const char* configFilePath) {
     return true;
 }
 
+void handleCommand(HomeLinkClient* client, int argc, char** argv) {
+    if(argc == 0) {
+        return;
+    }
+
+    const char* command = argv[0];
+    const size_t commandLen = strlen(command);
+
+    const char* getCommand = "get";
+    const size_t getCommandLen = strlen(getCommand);
+
+    const char* sendCommand = "send";
+    const size_t sendCommandLen = strlen(sendCommand);
+
+    if(commandLen == getCommandLen && strncmp(command, "get", getCommandLen) == 0) {
+        char* prefix = NULL;
+        if(argc == 2) {
+            prefix = calloc(64, sizeof(char));
+            
+            strncpy(prefix, argv[1], 62);
+            size_t idx = strlen(prefix);
+            if(prefix[idx] != '/') {
+                prefix[idx] = '/';
+            }
+        }
+
+        char* filename = HomeLinkClient__readFile(client, prefix != NULL ? prefix : "");
+        if(prefix != NULL) {
+            free(prefix);
+        }
+
+        if(filename == NULL) {
+            fprintf(stderr, "Error fetching file\n");
+            return;
+        }
+
+        if(strlen(filename) > 0) {
+            printf("Fetched file: %s\n", filename);
+        } else {
+            printf("No files in queue\n");
+        }
+
+        free(filename);
+    } else if(commandLen == sendCommandLen && strncmp(command, "send", sendCommandLen) == 0) {
+        if(argc != 5) {
+            fprintf(stderr, "Invalid command\n");
+            return;
+        }
+
+        const char* hostId = argv[1];
+        const char* serviceId = argv[2];
+        const char* localPath = argv[3];
+        const char* remotePath = argv[4];
+
+        bool status = HomeLinkClient__writeFile(client, hostId, serviceId, localPath, remotePath);
+
+        printf("Write %s\n", status ? "succeeded" : "failed");
+    } else {
+        fprintf(stderr, "Invalid command\n");
+    }
+}
+
 int main(int argc, char** argv)
 {
     if(argc < 2) {
@@ -196,6 +258,8 @@ int main(int argc, char** argv)
     if(!HomeLinkClient__login(&client, "password")) {
         fprintf(stderr, "Login failed\n");
     }
+
+    handleCommand(&client, argc - 2, argv + 2);
 
     HomeLinkClient__logout(&client);
     cleanSecurity();

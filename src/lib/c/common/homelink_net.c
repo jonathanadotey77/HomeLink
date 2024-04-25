@@ -12,6 +12,39 @@
 
 #define HOMELINK_FILE_BLOCK_SIZE 8192
 
+static void makeParentDirectory(const char *dir)
+{
+    char temp[256];
+    char *p = NULL;
+
+    snprintf(temp, sizeof(temp), "%s", dir);
+    int len = (int)strlen(temp);
+
+    if (temp[len - 1] == '/')
+    {
+        temp[len - 1] = '\0';
+    }
+
+    for (int last = len - 2; last >= 0; --last)
+    {
+        if (temp[last] == '/')
+        {
+            temp[last] = '\0';
+        }
+    }
+
+    for (p = temp + 1; *p; p++)
+    {
+        if (*p == '/')
+        {
+            *p = 0;
+            mkdir(temp, 0777);
+            *p = '/';
+        }
+    }
+    mkdir(temp, 0777);
+}
+
 bool sendBufferTcp(int sd, const uint8_t *buffer, int n)
 {
     int bytesSent = 0;
@@ -118,6 +151,7 @@ bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t 
         if (!status)
         {
             fprintf(stderr, "aesEncrypt() failed\n");
+            status = false;
             break;
         }
 
@@ -126,6 +160,7 @@ bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t 
         if (!status)
         {
             fprintf(stderr, "sendBufferTcp() failed\n");
+            status = false;
             break;
         }
 
@@ -134,6 +169,7 @@ bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t 
         if (!status)
         {
             fprintf(stderr, "recvBufferTcp() failed\n");
+            status = false;
             break;
         }
 
@@ -152,7 +188,7 @@ bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t 
     memset(sendBuffer, 0, sizeof(sendBuffer));
     memset(recvBuffer, 0, sizeof(recvBuffer));
 
-    return true;
+    return status;
 }
 
 char *recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
@@ -224,6 +260,8 @@ char *recvFile(int sd, const char *prefix, const uint8_t *aesKey, bool collapse)
 
     char *filePath = (char *)calloc(256, 1);
     snprintf(filePath, 255, "%s%s", prefix, filename);
+
+    makeParentDirectory(filePath);
 
     FILE *fp = fopen(filePath, "wb");
     if (!fp)

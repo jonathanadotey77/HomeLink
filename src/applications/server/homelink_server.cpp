@@ -696,7 +696,7 @@ void *clientThread(void *a)
 
                 if (verbose)
                 {
-                    printf("Clearing %s from file queue {%s | %s}", tempFilename.c_str(), hostId.c_str(), serviceId.c_str());
+                    printf("Clearing %s from file queue {%s | %s}\n", tempFilename.c_str(), hostId.c_str(), serviceId.c_str());
                 }
                 fileQueue.pullFile(tempFilePath);
             }
