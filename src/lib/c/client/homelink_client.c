@@ -41,6 +41,11 @@ static void HomeLinkClient__sendCommand(int sd, HomeLinkClient *client, const ch
 
 bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, int argc, char **argv)
 {
+    if (!initializeSecurity())
+    {
+        return false;
+    }
+
     memset(client, 0, sizeof(HomeLinkClient));
     client->serverControlPort = 0;
     client->serverDataPort = 0;
@@ -70,18 +75,20 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
 
         if (strlen(token) == hostIdLen && strncmp(token, hostId, hostIdLen) == 0)
         {
-            char* field = strtok(NULL, "=");
-            if(field == NULL || strlen(field) == 0) {
+            char *field = strtok(NULL, "=");
+            if (field == NULL || strlen(field) == 0)
+            {
                 fprintf(stderr, "Field for %s cannot be empty\n", token);
                 return false;
             }
-            strncpy(client->hostId, field, sizeof(client->hostId)-1);
+            strncpy(client->hostId, field, sizeof(client->hostId) - 1);
         }
 
         else if (strlen(token) == serverIpAddressLen && strncmp(token, serverIpAddress, serverIpAddressLen) == 0)
         {
-            char* field = strtok(NULL, "=");
-            if(field == NULL || strlen(field) == 0) {
+            char *field = strtok(NULL, "=");
+            if (field == NULL || strlen(field) == 0)
+            {
                 fprintf(stderr, "Field for %s cannot be empty\n", token);
                 return false;
             }
@@ -91,21 +98,25 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
 
         else if (strlen(token) == serverControlPortLen && strncmp(token, serverControlPort, serverControlPortLen) == 0)
         {
-            char* field = strtok(NULL, "=");
-            if(field == NULL || strlen(field) == 0) {
+            char *field = strtok(NULL, "=");
+            if (field == NULL || strlen(field) == 0)
+            {
                 fprintf(stderr, "Field for %s cannot be empty\n", token);
                 return false;
             }
 
-            for(char* p = field; *p != '\0'; ++p) {
-                if(!isdigit(*p)) {
+            for (char *p = field; *p != '\0'; ++p)
+            {
+                if (!isdigit(*p))
+                {
                     fprintf(stderr, "Invalid value for %s\n", token);
                     return false;
                 }
             }
 
             int i = atoi(field);
-            if(i == 0 || i >= UINT16_MAX) {
+            if (i == 0 || i >= UINT16_MAX)
+            {
                 fprintf(stderr, "Invalid value for %s\n", token);
                 return false;
             }
@@ -115,21 +126,25 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
 
         else if (strlen(token) == serverDataPortLen && strncmp(token, serverDataPort, serverDataPortLen) == 0)
         {
-            char* field = strtok(NULL, "=");
-            if(field == NULL || strlen(field) == 0) {
+            char *field = strtok(NULL, "=");
+            if (field == NULL || strlen(field) == 0)
+            {
                 fprintf(stderr, "Field for %s cannot be empty\n", token);
                 return false;
             }
 
-            for(char* p = field; *p != '\0'; ++p) {
-                if(!isdigit(*p)) {
+            for (char *p = field; *p != '\0'; ++p)
+            {
+                if (!isdigit(*p))
+                {
                     fprintf(stderr, "Invalid value for %s\n", token);
                     return false;
                 }
             }
 
             int i = atoi(field);
-            if(i == 0 || i >= UINT16_MAX) {
+            if (i == 0 || i >= UINT16_MAX)
+            {
                 fprintf(stderr, "Invalid value for %s\n", token);
                 return false;
             }

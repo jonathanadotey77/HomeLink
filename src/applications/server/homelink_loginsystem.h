@@ -7,27 +7,27 @@
 #include <sqlite3.h>
 #include <string>
 
-class LoginSystem
-{
+class LoginSystem {
 
 private:
-    static const std::string LOGIN_FILE;
-    sqlite3 *dbHandle;
+  static const std::string LOGIN_FILE;
+  sqlite3 *dbHandle;
 
 public:
-    LoginSystem() {}
+  LoginSystem() {}
 
-    bool start();
+  bool start();
 
-    void stop();
+  void stop();
 
-    LoginStatus tryLogin(const char *hostId, const char *serviceId, const char *password);
+  LoginStatus tryLogin(const char *hostId, const char *serviceId,
+                       const char *password);
 
-    LoginStatus registerUser(const char *hostId, const char *serviceId, const char *password);
+  LoginStatus registerUser(const char *hostId, const char *serviceId,
+                           const char *password);
 
-    LoginStatus changePassword(const char *hostId, const char *serviceId,
-                               const char *oldPassword,
-                               const char *newPassword);
+  LoginStatus changePassword(const char *hostId, const char *serviceId,
+                             const char *oldPassword, const char *newPassword);
 };
 
 #endif

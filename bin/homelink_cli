@@ -23,6 +23,17 @@ else
     export HOMELINK_CLI_CONFIG_PATH=$HOME/.homelink_config/cli_config.conf
 fi
 
+if [[ -v HOMELINK_HOST_CONFIG_PATH ]]; then
+    export HOMELINK_HOST_CONFIG_PATH=$HOMELINK_HOST_CONFIG_PATH
+else
+    mkdir $HOME/.homelink_config/ >/dev/null 2>&1
+    if [ ! -f $HOME/.homelink_config/host_config.conf ]; then
+        touch $HOME/.homelink_config/host_config.conf
+    fi
+
+    export HOMELINK_HOST_CONFIG_PATH=$HOME/.homelink_config/host_config.conf
+fi
+
 current_directory=$(pwd)
 
 $HOMELINK_ROOT/build/applications/homelink_cli $@
