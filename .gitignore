@@ -5,6 +5,7 @@ filesystem/
 login/
 config/
 notes.txt
+todo.txt
 *.cmake*
 *Makefile*
 build/
