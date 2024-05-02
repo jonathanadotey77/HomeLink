@@ -2,7 +2,6 @@
 
 #include <homelink_misc.h>
 #include <homelink_net.h>
-#include <homelink_packet.h>
 #include <homelink_security.h>
 
 #include <arpa/inet.h>
@@ -14,6 +13,81 @@
 #include <stdlib.h>
 #include <string.h>
 #include <poll.h>
+
+static const int RETRY_COUNT = 5;
+
+typedef struct HomeLinkClient
+{
+    int controlSocket;
+    char serverControlAddressStr[64];
+    struct sockaddr_in6 serverControlAddress;
+    struct sockaddr_in6 serverDataAddress;
+    struct sockaddr_in6 clientControlAddress;
+    struct sockaddr_in6 clientDataAddress;
+    uint16_t serverControlPort;
+    uint16_t serverDataPort;
+    char serverPublicKey[512];
+    char clientPublicKey[512];
+    uint8_t aesKey[32];
+    char hostId[33];
+    char serviceId[33];
+    uint32_t connectionId;
+    char sessionKey[256];
+} HomeLinkClient;
+
+const size_t HomeLinkClient__SIZE = sizeof(HomeLinkClient);
+
+const char *getHostKey()
+{
+    static bool initialized = false;
+    static char hostKey[128] = {0};
+    if (!initialized)
+    {
+        char hostKeyFilePath[128] = {0};
+        snprintf(hostKeyFilePath, sizeof(hostKeyFilePath) - 1, "%s/.config/homelink/host.key", getenv("HOME"));
+
+        if (!fileExists(hostKeyFilePath))
+        {
+            char tempHostKey[128] = {0};
+            FILE *fp = fopen(hostKeyFilePath, "w");
+            if (fp == NULL)
+            {
+                fprintf(stderr, "fopen() failed\n");
+                return NULL;
+            }
+            uint8_t key[32] = {0};
+            randomBytes(key, sizeof(key));
+            getByteStr(tempHostKey, key, sizeof(key));
+            fprintf(fp, "%s", tempHostKey);
+            fclose(fp);
+            memset(key, 0, sizeof(key));
+            memset(tempHostKey, 0, sizeof(tempHostKey));
+        }
+
+        FILE *fp = fopen(hostKeyFilePath, "r");
+        if (fp == NULL)
+        {
+            fprintf(stderr, "fopen() failed\n");
+            return NULL;
+        }
+
+        for (int i = 0; i < (int)sizeof(hostKey) - 1; ++i)
+        {
+            char c = fgetc(fp);
+            if (c == EOF)
+            {
+                break;
+            }
+
+            hostKey[i] = c;
+        }
+
+        fclose(fp);
+        initialized = true;
+    }
+
+    return hostKey;
+}
 
 static void HomeLinkClient__sendCommand(int sd, HomeLinkClient *client, const char *command)
 {
@@ -41,6 +115,11 @@ static void HomeLinkClient__sendCommand(int sd, HomeLinkClient *client, const ch
 
 bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, int argc, char **argv)
 {
+    if (getHostKey() == NULL)
+    {
+        return false;
+    }
+
     if (!initializeSecurity())
     {
         return false;
@@ -224,9 +303,15 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
 
     if (!bound)
     {
-        fprintf(stderr, "Could not bind to port\n");
+        fprintf(stderr, "bind() failed [%d]\n", errno);
         close(client->controlSocket);
         return false;
+    }
+
+    if (connect(client->controlSocket, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress)) < 0)
+    {
+        fprintf(stderr, "connect() failed [%d\n]", errno);
+        close(client->controlSocket);
     }
 
     strncpy(client->serviceId, serviceId, sizeof(client->serviceId));
@@ -236,12 +321,12 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
     return true;
 }
 
-bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
+bool HomeLinkClient__fetchKeys(HomeLinkClient *client)
 {
     struct pollfd fds[1];
     memset(fds, 0, sizeof(fds));
 
-    struct sockaddr_in6 sourceAddress;
+    struct sockaddr_in6 sourceAddress = {0};
     socklen_t sourceAddressLen = sizeof(sourceAddress);
 
     KeyRequestPacket keyRequestPacket;
@@ -257,17 +342,12 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
 
     uint8_t buffer[1024] = {0};
 
-    char username[1024] = {0};
-    snprintf(username, sizeof(username), "%s__%s", client->hostId, client->serviceId);
-
-    int rc = 0;
-
-    while (true)
+    for (int i = 0; i < RETRY_COUNT; ++i)
     {
         randomBytes((uint8_t *)&connectionId, sizeof(connectionId));
         keyRequestPacket.connectionId = connectionId;
         KeyRequestPacket_serialize(buffer, &keyRequestPacket);
-        rc = sendto(client->controlSocket, buffer, KeyRequestPacket_SIZE, 0, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress));
+        int rc = sendto(client->controlSocket, buffer, KeyRequestPacket_SIZE, 0, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress));
         if (rc < 0)
         {
             fprintf(stderr, "sendto() failed [%d]\n", errno);
@@ -298,6 +378,11 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
         {
             fprintf(stderr, "recvfrom() failed [%d]\n", errno);
             return false;
+        }
+
+        if ((HomeLinkPacketType)buffer[0] != e_KeyResponse)
+        {
+            continue;
         }
 
         KeyResponsePacket keyResponsePacket;
@@ -319,37 +404,123 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
             continue;
         }
 
-        break;
+        client->connectionId = connectionId;
+
+        return true;
     }
+
+    return false;
+}
+
+RegisterStatus HomeLinkClient__registerHost(HomeLinkClient *client)
+{
+    const char *hostKey = getHostKey();
+    if (hostKey == NULL)
+    {
+        fprintf(stderr, "Failed to read host key\n");
+    }
+    RegisterRequestPacket registerRequestPacket;
+    uint8_t buffer[1024];
+    for (int i = 0; i < RETRY_COUNT; ++i)
+    {
+        memset(buffer, 0, sizeof(buffer));
+        memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
+        registerRequestPacket.packetType = e_RegisterRequest;
+        registerRequestPacket.registrationType = e_HostRegistration;
+        strncpy(registerRequestPacket.hostId, client->hostId, sizeof(registerRequestPacket.hostId) - 1);
+        uint8_t data[128] = {0};
+        randomBytes(data, 32);
+        strncpy((char *)(data + 32), hostKey, 65);
+        memset(data + 104, 0, 24);
+        size_t len = sizeof(registerRequestPacket.data);
+        bool status = rsaEncrypt(registerRequestPacket.data, &len, data, sizeof(data), client->serverPublicKey);
+        if (!status)
+        {
+            fprintf(stderr, "rsaEncrypt() failed\n");
+            return e_RegisterFailed;
+        }
+
+        memset(data, 0, sizeof(data));
+
+        struct sockaddr_in6 sourceAddress = {0};
+        socklen_t sourceAddressLen = sizeof(sourceAddress);
+
+        RegisterRequestPacket_serialize(buffer, &registerRequestPacket);
+        int rc = sendto(client->controlSocket, buffer, RegisterRequestPacket_SIZE, 0, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress));
+        if (rc < 0)
+        {
+            fprintf(stderr, "sendto() failed [%d]\n", errno);
+            return e_RegisterFailed;
+        }
+
+        memset(buffer, 0, sizeof(buffer));
+        rc = recvfrom(client->controlSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&sourceAddress, &sourceAddressLen);
+        if (rc < 0)
+        {
+            fprintf(stderr, "recvfrom() failed [%d]\n", errno);
+            return e_RegisterFailed;
+        }
+
+        if (rc == RegisterResponsePacket_SIZE && buffer[0] == e_RegisterResponse)
+        {
+            break;
+        }
+
+        if (i + 1 == RETRY_COUNT)
+        {
+            return e_RegisterFailed;
+        }
+    }
+
+    RegisterResponsePacket registerResponsePacket = {0};
+    RegisterResponsePacket_deserialize(&registerResponsePacket, buffer);
+
+    return registerResponsePacket.status;
+}
+
+RegisterStatus HomeLinkClient__registerService(HomeLinkClient *client, const char *serviceId, const char *password)
+{
+    struct pollfd fds[1];
+    memset(fds, 0, sizeof(fds));
+
+    struct sockaddr_in6 sourceAddress = {0};
+    socklen_t sourceAddressLen = sizeof(sourceAddress);
+
     char *hashedPassword = hashPassword(password, strlen(password));
-    uint8_t passwordData[128] = {0};
-    strncpy((char *)(passwordData) + 32, hashedPassword, strlen(hashedPassword));
-    while (true)
+    uint8_t passwordData[192] = {0};
+
+    strncpy((char *)(passwordData) + 32, getHostKey(), 65);
+    strncpy((char *)(passwordData) + 97, hashedPassword, 65);
+    memset(hashedPassword, 0, strlen(hashedPassword));
+    free(hashedPassword);
+
+    passwordData[96] = '\0';
+    passwordData[161] = '\0';
+    uint8_t buffer[1024];
+    for (int i = 0; i < RETRY_COUNT; ++i)
     {
         RegisterRequestPacket registerRequestPacket;
         memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
 
         randomBytes(passwordData, 32);
-        randomBytes(passwordData + 104, 24);
 
         strncpy(registerRequestPacket.hostId, client->hostId, sizeof(registerRequestPacket.hostId) - 1);
-        strncpy(registerRequestPacket.serviceId, client->serviceId, sizeof(registerRequestPacket.serviceId) - 1);
+        strncpy(registerRequestPacket.serviceId, serviceId, sizeof(registerRequestPacket.serviceId) - 1);
 
         size_t len = sizeof(registerRequestPacket.data);
         rsaEncrypt(registerRequestPacket.data, &len, passwordData, sizeof(passwordData), client->serverPublicKey);
 
         registerRequestPacket.packetType = e_RegisterRequest;
-        registerRequestPacket.connectionId = connectionId;
+        registerRequestPacket.registrationType = e_ServiceRegistration;
 
         memset(buffer, 0, sizeof(buffer));
         RegisterRequestPacket_serialize(buffer, &registerRequestPacket);
 
-        rc = sendto(client->controlSocket, buffer, RegisterRequestPacket_SIZE, 0, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress));
+        int rc = sendto(client->controlSocket, buffer, RegisterRequestPacket_SIZE, 0, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress));
         if (rc < 0)
         {
             fprintf(stderr, "sendto() failed [%d]\n", errno);
-            memset(hashedPassword, 0, strlen(hashedPassword));
-            free(hashedPassword);
+            memset(passwordData, 0, sizeof(passwordData));
             return false;
         }
 
@@ -361,8 +532,7 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
         if (rc < 0)
         {
             fprintf(stderr, "poll() failed [%d]\n", errno);
-            memset(hashedPassword, 0, strlen(hashedPassword));
-            free(hashedPassword);
+            memset(passwordData, 0, sizeof(passwordData));
             return false;
         }
         else if (rc == 0)
@@ -377,9 +547,8 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
         if (rc < 0)
         {
             fprintf(stderr, "recvfrom() failed [%d]\n", errno);
-            memset(hashedPassword, 0, strlen(hashedPassword));
-            free(hashedPassword);
-            return false;
+            memset(passwordData, 0, sizeof(passwordData));
+            return e_RegisterFailed;
         }
 
         if (rc == 0 || buffer[0] != e_RegisterResponse || rc != RegisterResponsePacket_SIZE)
@@ -390,35 +559,49 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
         RegisterResponsePacket registerResponsePacket;
         RegisterResponsePacket_deserialize(&registerResponsePacket, buffer);
 
-        if (registerResponsePacket.status == e_UserAlreadyExists || registerResponsePacket.status == e_LoginSuccess)
+        memset(passwordData, 0, sizeof(passwordData));
+        if (registerResponsePacket.status == e_AlreadyExists || registerResponsePacket.status == e_RegisterSuccess)
         {
-            break;
+            return registerResponsePacket.status;
         }
         else
         {
             fprintf(stderr, "Register error\n");
-            memset(hashedPassword, 0, strlen(hashedPassword));
-            free(hashedPassword);
-            return false;
+            return e_RegisterFailed;
         }
     }
 
-    while (true)
+    memset(passwordData, 0, sizeof(passwordData));
+    return e_RegisterFailed;
+}
+
+bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
+{
+    struct pollfd fds[1];
+    memset(fds, 0, sizeof(fds));
+
+    struct sockaddr_in6 sourceAddress = {0};
+    socklen_t sourceAddressLen = sizeof(sourceAddress);
+
+    uint8_t buffer[1024] = {0};
+
+    char *hashedPassword = hashPassword(password, strlen(password));
+    uint8_t passwordData[192] = {0};
+    strncpy((char *)(passwordData) + 32, hashedPassword, strlen(hashedPassword));
+    memset(hashedPassword, 0, strlen(hashedPassword));
+    free(hashedPassword);
+
+    for (int i = 0; i < RETRY_COUNT; ++i)
     {
         LoginRequestPacket loginRequestPacket;
         memset(&loginRequestPacket, 0, sizeof(loginRequestPacket));
 
         loginRequestPacket.packetType = e_LoginRequest;
-        loginRequestPacket.connectionId = connectionId;
+        loginRequestPacket.connectionId = client->connectionId;
         strncpy(loginRequestPacket.hostId, client->hostId, sizeof(loginRequestPacket.hostId) - 1);
         strncpy(loginRequestPacket.serviceId, client->serviceId, sizeof(loginRequestPacket.serviceId) - 1);
 
-        uint32_t tag = 0;
-        randomBytes((uint8_t *)&tag, sizeof(tag));
-
-        *((uint32_t *)passwordData) = htonl(tag);
-
-        randomBytes(passwordData + 4, 28);
+        randomBytes(passwordData, 32);
         randomBytes(passwordData + 104, 24);
 
         size_t len = sizeof(loginRequestPacket.data);
@@ -428,12 +611,11 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
 
         LoginRequestPacket_serialize(buffer, &loginRequestPacket);
 
-        rc = sendto(client->controlSocket, buffer, LoginRequestPacket_SIZE, 0, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress));
+        int rc = sendto(client->controlSocket, buffer, LoginRequestPacket_SIZE, 0, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress));
         if (rc < 0)
         {
             fprintf(stderr, "sendto() failed [%d]\n", errno);
-            memset(hashedPassword, 0, strlen(hashedPassword));
-            free(hashedPassword);
+            memset(passwordData, 0, sizeof(passwordData));
             return false;
         }
 
@@ -445,8 +627,7 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
         if (rc < 0)
         {
             fprintf(stderr, "poll() failed [%d]\n", errno);
-            memset(hashedPassword, 0, strlen(hashedPassword));
-            free(hashedPassword);
+            memset(passwordData, 0, sizeof(passwordData));
             return false;
         }
         else if (rc == 0)
@@ -458,8 +639,6 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
         if (rc < 0)
         {
             fprintf(stderr, "recvfrom() failed [%d]\n", errno);
-            memset(hashedPassword, 0, strlen(hashedPassword));
-            free(hashedPassword);
             return false;
         }
 
@@ -476,9 +655,8 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
         if (status == e_LoginFailed)
         {
             fprintf(stderr, "Incorrect password\n");
-            memset(hashedPassword, 0, strlen(hashedPassword));
-            free(hashedPassword);
             return false;
+            memset(passwordData, 0, sizeof(passwordData));
         }
         else if (status == e_LoginSuccess)
         {
@@ -489,16 +667,12 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
         else
         {
             fprintf(stderr, "Login error\n");
-            memset(hashedPassword, 0, strlen(hashedPassword));
-            free(hashedPassword);
+            memset(passwordData, 0, sizeof(passwordData));
             return false;
         }
     }
 
-    memset(hashedPassword, 0, strlen(hashedPassword));
-    free(hashedPassword);
-
-    client->connectionId = connectionId;
+    memset(passwordData, 0, sizeof(passwordData));
 
     return true;
 }
@@ -515,7 +689,6 @@ void HomeLinkClient__logout(HomeLinkClient *client)
 
     LogoutPacket_serialize(buffer, &logoutPacket);
     sendto(client->controlSocket, buffer, LogoutPacket__SIZE, 0, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress));
-    close(client->controlSocket);
 }
 
 char *HomeLinkClient__readFile(HomeLinkClient *client, const char *directory)
@@ -605,4 +778,10 @@ bool HomeLinkClient__writeFile(HomeLinkClient *client, const char *destinationHo
     close(sd);
 
     return status;
+}
+
+void HomeLinkClient__destruct(HomeLinkClient *client)
+{
+    memset(client->sessionKey, 0, sizeof(client->sessionKey));
+    close(client->controlSocket);
 }

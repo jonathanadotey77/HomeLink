@@ -10,7 +10,7 @@
 const char *serviceId = "DAEMON";
 const char *daemonPassword = "PASSWORD717171717171717";
 char daemonDirectory[256] = {0};
-HomeLinkClient client;
+HomeLinkClient *client = NULL;
 
 volatile bool stopped = false;
 
@@ -24,14 +24,16 @@ void shutdownHandler(int sig)
 
 void shutdownDaemon()
 {
-    HomeLinkClient__logout(&client);
+    HomeLinkClient__logout(client);
+    HomeLinkClient__destruct(client);
+    free(client);
 }
 
 void run()
 {
     while (!stopped)
     {
-        char *filename = HomeLinkClient__readFile(&client, daemonDirectory);
+        char *filename = HomeLinkClient__readFile(client, daemonDirectory);
         if (filename == NULL)
         {
             printf("File read error\n");
@@ -53,43 +55,62 @@ void run()
     }
 }
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     if (!initializeSecurity())
     {
         return false;
     }
 
+    client = (HomeLinkClient *)calloc(1, HomeLinkClient__SIZE);
+
     signal(SIGINT, shutdownHandler);
     signal(SIGTSTP, shutdownHandler);
-
-    memset(&client, 0, sizeof(client));
 
     char *dir = getenv("HOMELINK_DAEMON_FILES");
     if (dir == NULL)
     {
         fprintf(stderr, "Environment variable HOMELINK_DAEMON_FILES is empty or not set\n");
+        cleanSecurity();
+        free(client);
         return 1;
     }
     strncpy(daemonDirectory, dir, sizeof(daemonDirectory) - 2);
     if (strlen(daemonDirectory) == 0)
     {
         fprintf(stderr, "Environment variable HOMELINK_DAEMON_FILES is empty or not set\n");
+        free(client);
         return 1;
     }
     daemonDirectory[strlen(daemonDirectory)] = '/';
 
-    if (!HomeLinkClient__initialize(&client, "DAEMON", argc-1, argv + 1))
+    if (!HomeLinkClient__initialize(client, "DAEMON", argc - 1, argv + 1))
     {
         cleanSecurity();
+        free(client);
         return 1;
     }
 
-    if (!HomeLinkClient__login(&client, daemonPassword))
+    if (!HomeLinkClient__fetchKeys(client))
     {
         cleanSecurity();
         shutdownDaemon();
+        return 1;
+    }
+
+    RegisterStatus status = HomeLinkClient__registerService(client, "DAEMON", daemonPassword);
+    if (status == e_RegisterFailed)
+    {
+        fprintf(stderr, "Register failed\n");
+        cleanSecurity();
+        shutdownDaemon();
+    }
+
+    if (!HomeLinkClient__login(client, daemonPassword))
+    {
         fprintf(stderr, "Login failed\n");
+        cleanSecurity();
+        shutdownDaemon();
         return 1;
     }
 

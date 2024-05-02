@@ -226,7 +226,9 @@ char *recvFile(int sd, const char *prefix, const uint8_t *aesKey, FileRecvMode m
                 fileInfo[i] = '+';
             }
         }
-    } else if(mode == e_ClientRecv) {
+    }
+    else if (mode == e_ClientRecv)
+    {
         for (uint32_t i = 0; i < sizeof(fileInfo); ++i)
         {
             if (fileInfo[i] == '+')

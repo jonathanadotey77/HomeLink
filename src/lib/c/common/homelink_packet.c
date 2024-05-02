@@ -5,31 +5,24 @@
 #include <netinet/in.h>
 #include <string.h>
 
-const int32_t CLIPacket_SIZE = sizeof(((CLIPacket){0}).packetType) + sizeof(((CLIPacket){0}).rsaPublicKey) + sizeof(((CLIPacket){0}).data);
+const int32_t PingPacket_SIZE = sizeof(((PingPacket){0}).packetType) + sizeof(((PingPacket){0}).value);
 
-void CLIPacket_serialize(uint8_t *buffer, const CLIPacket *packet)
+void PingPacket_serialize(uint8_t *buffer, const PingPacket *packet)
 {
     uint8_t *packetType = (uint8_t *)(buffer);
-    uint8_t *rsaPublicKey = (uint8_t *)(buffer + sizeof(packet->packetType));
-    uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->rsaPublicKey));
+    uint32_t *value = (uint32_t *)(buffer + sizeof(packet->packetType));
 
     *packetType = packet->packetType;
-    memcpy(rsaPublicKey, packet->rsaPublicKey, sizeof(packet->rsaPublicKey));
-    memcpy(data, packet->data, sizeof(packet->data));
-
-    rsaPublicKey[sizeof(packet->rsaPublicKey) - 1] = '\0';
+    *value = htonl(packet->value);
 }
-void CLIPacket_deserialize(CLIPacket *packet, const uint8_t *buffer)
+
+void PingPacket_deserialize(PingPacket *packet, const uint8_t *buffer)
 {
     const uint8_t *packetType = (const uint8_t *)(buffer);
-    const uint8_t *rsaPublicKey = (const uint8_t *)(buffer + sizeof(packet->packetType));
-    const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->rsaPublicKey));
+    const uint32_t *value = (const uint32_t *)(buffer + sizeof(packet->packetType));
 
     packet->packetType = *packetType;
-    memcpy(packet->rsaPublicKey, rsaPublicKey, sizeof(packet->rsaPublicKey));
-    memcpy(packet->data, data, sizeof(packet->data));
-
-    packet->rsaPublicKey[sizeof(packet->rsaPublicKey) - 1] = '\0';
+    packet->value = ntohl(*value);
 }
 
 const int32_t AckPacket_SIZE = sizeof(((AckPacket){0}).packetType) + sizeof(((AckPacket){0}).value);
@@ -201,18 +194,18 @@ void LoginResponsePacket_deserialize(LoginResponsePacket *packet, const uint8_t 
     memcpy(packet->sessionKey, sessionKey, sizeof(packet->sessionKey));
 }
 
-const int32_t RegisterRequestPacket_SIZE = sizeof(((RegisterRequestPacket){0}).packetType) + sizeof(((RegisterRequestPacket){0}).connectionId) + sizeof(((RegisterRequestPacket){0}).hostId) + sizeof(((RegisterRequestPacket){0}).serviceId) + sizeof(((RegisterRequestPacket){0}).data);
+const int32_t RegisterRequestPacket_SIZE = sizeof(((RegisterRequestPacket){0}).packetType) + sizeof(((RegisterRequestPacket){0}).registrationType) + sizeof(((RegisterRequestPacket){0}).hostId) + sizeof(((RegisterRequestPacket){0}).serviceId) + sizeof(((RegisterRequestPacket){0}).data);
 
 void RegisterRequestPacket_serialize(uint8_t *buffer, const RegisterRequestPacket *packet)
 {
     uint8_t *packetType = (uint8_t *)(buffer);
-    uint32_t *connectionId = (uint32_t *)(buffer + sizeof(packet->packetType));
-    char *hostId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
-    char *serviceId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
-    uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId) + sizeof(packet->serviceId));
+    uint8_t *registrationType = (uint8_t *)(buffer + sizeof(packet->packetType));
+    char *hostId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->registrationType));
+    char *serviceId = (char *)(buffer + sizeof(packet->packetType) + sizeof(packet->registrationType) + sizeof(packet->hostId));
+    uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->registrationType) + sizeof(packet->hostId) + sizeof(packet->serviceId));
 
     *packetType = packet->packetType;
-    *connectionId = htonl(packet->connectionId);
+    *registrationType = packet->registrationType;
     memcpy(hostId, packet->hostId, sizeof(packet->hostId));
     memcpy(serviceId, packet->serviceId, sizeof(packet->serviceId));
     memcpy(data, packet->data, sizeof(packet->data));
@@ -224,16 +217,17 @@ void RegisterRequestPacket_serialize(uint8_t *buffer, const RegisterRequestPacke
 void RegisterRequestPacket_deserialize(RegisterRequestPacket *packet, const uint8_t *buffer)
 {
     const uint8_t *packetType = (const uint8_t *)(buffer);
-    const uint32_t *connectionId = (const uint32_t *)(buffer + sizeof(packet->packetType));
-    const char *hostId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
-    const char *serviceId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId));
-    const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->hostId) + sizeof(packet->serviceId));
+    const uint8_t *registrationType = (const uint8_t *)(buffer + sizeof(packet->packetType));
+    const char *hostId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->registrationType));
+    const char *serviceId = (const char *)(buffer + sizeof(packet->packetType) + sizeof(packet->registrationType) + sizeof(packet->hostId));
+    const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->registrationType) + sizeof(packet->hostId) + sizeof(packet->serviceId));
 
     packet->packetType = *packetType;
-    packet->connectionId = ntohl(*connectionId);
+    packet->registrationType = *registrationType;
     memcpy(packet->hostId, hostId, sizeof(packet->hostId));
     memcpy(packet->serviceId, serviceId, sizeof(packet->serviceId));
     memcpy(packet->data, data, sizeof(packet->data));
+
     packet->hostId[sizeof(packet->hostId) - 1] = '\0';
     packet->serviceId[sizeof(packet->hostId) - 1] = '\0';
 }

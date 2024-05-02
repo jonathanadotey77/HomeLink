@@ -2,23 +2,26 @@
 #define HOMELINK_MISC_H
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #include <netinet/in.h>
 #include <stdbool.h>
 
-struct in6_addr getIpAddress();
+    struct in6_addr getIpAddress();
 
-int ipv4ToIpv6(const char *ipv4Str, char *ipv6Str);
+    int ipv4ToIpv6(const char *ipv4Str, char *ipv6Str);
 
-void getIpv6Str(char *out, const struct in6_addr *address);
+    void getIpv6Str(char *out, const struct in6_addr *address);
 
-struct in6_addr parseIpAddress(const char *addressStr);
+    struct in6_addr parseIpAddress(const char *addressStr);
 
-void getByteStr(char *dest, const void *src, int n);
+    void getByteStr(char *dest, const void *src, int n);
 
-void printBytes(const void *buffer, int n);
+    void printBytes(const void *buffer, int n);
+
+    bool fileExists(const char *filename);
 
 #ifdef __cplusplus
 }

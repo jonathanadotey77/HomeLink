@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 static struct in6_addr localIpAddress;
@@ -163,4 +164,10 @@ void printBytes(const void *buffer, int n)
     printf("%s\n", temp);
 
     free(temp);
+}
+
+bool fileExists(const char *filename)
+{
+    struct stat buffer;
+    return (stat(filename, &buffer) == 0);
 }
