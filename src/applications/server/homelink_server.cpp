@@ -266,26 +266,52 @@ void *controlThread(void *)
             const char *hostKey = reinterpret_cast<const char *>(data + 32);
             const char *password = reinterpret_cast<const char *>(data + 97);
 
-            if (clientKeys[connectionId].checkTag(tag) &&
-                loginSystem.tryLogin(hostId, serviceId, hostKey, password) == e_LoginSuccess)
+            if (clientKeys[connectionId].checkTag(tag))
             {
+                LoginStatus status = loginSystem.tryLogin(hostId, serviceId, hostKey, password);
                 if (verbose)
                 {
-                    printf("Login success\n");
+                    if (status == e_LoginSuccess)
+                    {
+                        printf("Login success\n");
+                    }
+                    else if (status == e_LoginFailed)
+                    {
+                        printf("Login failed\n");
+                    }
+                    else if (status == e_NoSuchService)
+                    {
+                        printf("No such service '%s'\n", serviceId);
+                    }
                 }
-
-                clientKeys[connectionId].setUser(hostId, serviceId);
 
                 LoginResponsePacket loginResponsePacket;
                 loginResponsePacket.packetType = e_LoginResponse;
-                loginResponsePacket.status = 1;
-                const char *sessionToken = clientKeys[connectionId].newSessionKey();
-                size_t outLen = sizeof(loginResponsePacket.sessionKey);
+                loginResponsePacket.status = status;
 
-                rsaEncrypt(loginResponsePacket.sessionKey, &outLen,
-                           reinterpret_cast<const uint8_t *>(sessionToken),
-                           strlen(sessionToken) + 1,
-                           clientKeys[connectionId].getPublicKey());
+                if (status == e_LoginSuccess)
+                {
+                    clientKeys[connectionId].setUser(hostId, serviceId);
+
+                    const char *sessionToken = clientKeys[connectionId].newSessionKey();
+                    size_t outLen = sizeof(loginResponsePacket.sessionKey);
+
+                    bool success = rsaEncrypt(loginResponsePacket.sessionKey, &outLen,
+                                              reinterpret_cast<const uint8_t *>(sessionToken),
+                                              strlen(sessionToken) + 1,
+                                              clientKeys[connectionId].getPublicKey());
+                    if (!success)
+                    {
+                        clientKeysLock.unlock();
+                        fprintf(stderr, "rsaEncrypt() failed\n");
+                        memset(buffer, 0, sizeof(buffer));
+                        continue;
+                    }
+                }
+                else
+                {
+                    randomBytes(loginResponsePacket.sessionKey, sizeof(loginResponsePacket.sessionKey));
+                }
 
                 memset(buffer, 0, sizeof(buffer));
                 LoginResponsePacket_serialize(buffer, &loginResponsePacket);
