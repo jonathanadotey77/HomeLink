@@ -176,8 +176,8 @@ void printBytes(const void *buffer, int n)
     free(temp);
 }
 
-bool fileExists(const char *filename)
+bool fileExists(const char *filePath)
 {
     struct stat buffer;
-    return (stat(filename, &buffer) == 0);
+    return (stat(filePath, &buffer) == 0);
 }

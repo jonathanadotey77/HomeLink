@@ -65,13 +65,13 @@ static std::mutex instanceMutex;
 static std::mutex loginSystemLock;
 static volatile bool active = false;
 
-LoginSystem &LoginSystem::getInstance()
+LoginSystem *LoginSystem::getInstance()
 {
     instanceMutex.lock();
-    static LoginSystem loginSystem;
+    static LoginSystem instance;
     instanceMutex.unlock();
 
-    return loginSystem;
+    return &instance;
 }
 bool LoginSystem::start()
 {

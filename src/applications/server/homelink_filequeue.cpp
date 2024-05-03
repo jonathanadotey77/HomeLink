@@ -4,6 +4,7 @@
 #include <chrono>
 #include <ctime>
 #include <filesystem>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -12,6 +13,9 @@ namespace fs = std::filesystem;
 
 static const std::string FILESYSTEM_ROOT =
     std::string(getenv("HOMELINK_ROOT")) + "/filesystem";
+
+std::mutex instanceMutex;
+std::mutex fileQueueLock;
 
 std::string getTimestamp()
 {
@@ -59,30 +63,45 @@ FileQueue::FileQueue()
     fs::create_directories(std::string(getenv("HOMELINK_ROOT")) + "/temp_files");
 }
 
+FileQueue *FileQueue::getInstance()
+{
+    static FileQueue instance;
+
+    return &instance;
+}
+
 std::string FileQueue::nextFile(const std::string &hostId,
                                 const std::string &serviceId)
 {
+
     fs::path serviceRoot = FILESYSTEM_ROOT + "/" + hostId + "/" + serviceId;
 
     std::vector<fs::path> files;
     std::vector<std::string> stack;
     std::string ans = "";
     std::string timestamp = "";
-
+    fileQueueLock.lock();
     if (fs::exists(serviceRoot) && fs::is_directory(serviceRoot))
     {
         for (const auto &entry : fs::directory_iterator(serviceRoot))
         {
             if (entry.is_regular_file())
             {
-                return entry.path().string();
+                ans = entry.path().string();
+                break;
             }
         }
     }
+    fileQueueLock.unlock();
     return ans;
 }
 
-void FileQueue::pullFile(const std::string &filePath) { fs::remove(filePath); }
+void FileQueue::pullFile(const std::string &filePath)
+{
+    fileQueueLock.lock();
+    fs::remove(filePath);
+    fileQueueLock.unlock();
+}
 
 bool FileQueue::pushFile(const std::string &hostId,
                          const std::string &serviceId,
@@ -119,8 +138,12 @@ bool FileQueue::pushFile(const std::string &hostId,
     ss << ".";
     ss << filename;
 
-    fs::create_directories(directory);
+    fileQueueLock.lock();
 
+    fs::create_directories(directory);
     fs::rename(path, ss.str());
+
+    fileQueueLock.unlock();
+
     return true;
 }

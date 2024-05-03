@@ -35,19 +35,40 @@ public:
 
     KeySet &operator=(const KeySet &other);
 
+    // Attemps to insert the tag into the internal set. Returns
+    // true if successful. This is essential for preventing replay
+    // attacks.
     bool checkTag(uint64_t tag);
+
+    // Attaches a hostId and serviceId to the KeySet
     void setUser(const char *hostId, const char *serviceId);
 
+    // Returns true if the session key was previously generated.
     bool validSessionKey(const char *key) const;
+
+    // Returns a new session key, the key is stored in an internal
+    // set.
     const char *newSessionKey();
+
+    // Returns the associated RSA public key.
     const char *getPublicKey() const;
+
+    // Returns the associated AES key.
     uint8_t *getAesKey() const;
 
+    // Returns the hostId if it was set, and an empty string
+    // otherwise.
     const std::string &getHostId() const;
+
+    // Returns the hostId if it was set, and an empty string
+    // otherwise.
     const std::string &getServiceId() const;
 
 private:
+    // Deep copy.
     void copy(const KeySet &other);
+
+    // For destructor.
     void destroy();
 };
 

@@ -7,6 +7,7 @@
 #include <sqlite3.h>
 #include <string>
 
+// SINGLETON
 class LoginSystem
 {
 private:
@@ -15,8 +16,10 @@ private:
     sqlite3 *dbHandle;
 
     LoginSystem() {}
-    LoginSystem(const LoginSystem &other);
-    LoginSystem &operator=(const LoginSystem &other);
+
+    // Deleted copy constructor and assignment operator.
+    LoginSystem(const LoginSystem &other) = delete;
+    LoginSystem &operator=(const LoginSystem &other) = delete;
 
     typedef enum HostValidationStatus
     {
@@ -34,20 +37,27 @@ private:
     HostValidationStatus validateHostKey(const char *hostId, const char *hostKey);
 
 public:
-    static LoginSystem &getInstance();
+    // Returns Singleton instance.
+    static LoginSystem *getInstance();
 
+    // Initializes sqlite login database.
     bool start();
 
+    // Closes the database connection.
     void stop();
 
+    // Returns the result of login.
     LoginStatus tryLogin(const char *hostId, const char *serviceId,
                          const char *hostKey, const char *password);
 
+    // Attempts to register a host.
     RegisterStatus registerHost(const char *hostId, const char *hostKey);
 
+    // Attempts to register a service.
     RegisterStatus registerService(const char *hostId, const char *serviceId,
                                    const char *hostKey, const char *password);
 
+    // Currently unused.
     LoginStatus changePassword(const char *hostId, const char *serviceId,
                                const char *hostKey, const char *oldPassword,
                                const char *newPassword);

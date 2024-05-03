@@ -41,8 +41,8 @@ volatile bool isStopped = false;
 std::unordered_map<uint32_t, KeySet> clientKeys;
 std::mutex clientKeysLock;
 
-FileQueue fileQueue;
-LoginSystem &loginSystem = LoginSystem::getInstance();
+FileQueue *fileQueue = NULL;
+LoginSystem *loginSystem = NULL;
 
 typedef struct ClientThreadArgs
 {
@@ -309,7 +309,7 @@ void handleRegisterRequest(int sd, const RegisterRequestPacket *registerRequestP
     hostKey[65] = '\0';
     if (registerRequestPacket->registrationType == e_HostRegistration)
     {
-        status = loginSystem.registerHost(hostId, hostKey);
+        status = loginSystem->registerHost(hostId, hostKey);
     }
     else if (registerRequestPacket->registrationType ==
              e_ServiceRegistration)
@@ -319,7 +319,7 @@ void handleRegisterRequest(int sd, const RegisterRequestPacket *registerRequestP
         password[65] = '\0';
 
         status =
-            loginSystem.registerService(hostId, serviceId, hostKey, password);
+            loginSystem->registerService(hostId, serviceId, hostKey, password);
     }
     else
     {
@@ -379,7 +379,7 @@ void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
 
     if (clientKeys[connectionId].checkTag(tag))
     {
-        LoginStatus status = loginSystem.tryLogin(hostId, serviceId, hostKey, password);
+        LoginStatus status = loginSystem->tryLogin(hostId, serviceId, hostKey, password);
         if (verbose)
         {
             if (status == e_LoginSuccess)
@@ -621,7 +621,7 @@ void *clientThread(void *a)
 
         if (command == "READ_FILE")
         {
-            std::string tempFilePath = fileQueue.nextFile(hostId, serviceId);
+            std::string tempFilePath = fileQueue->nextFile(hostId, serviceId);
             if (tempFilePath.empty())
             {
                 uint8_t buffer[1] = {0};
@@ -673,7 +673,7 @@ void *clientThread(void *a)
                     printf("Clearing %s from file queue {%s | %s}\n",
                            tempFilename.c_str(), hostId.c_str(), serviceId.c_str());
                 }
-                fileQueue.pullFile(tempFilePath);
+                fileQueue->pullFile(tempFilePath);
             }
             else
             {
@@ -748,8 +748,8 @@ void *clientThread(void *a)
                     printf("File '%s' received successfully\n", filename);
                 }
 
-                fileQueue.pushFile(destinationHostId, destinationServiceId,
-                                   tempFilePath);
+                fileQueue->pushFile(destinationHostId, destinationServiceId,
+                                    tempFilePath);
                 delete[] filename;
             }
             else
@@ -835,7 +835,9 @@ void *dataThread(void *)
 
 bool start()
 {
-    if (!loginSystem.start())
+    loginSystem = LoginSystem::getInstance();
+    fileQueue = FileQueue::getInstance();
+    if (!loginSystem->start())
     {
         fprintf(stderr, "Failed to start login system\n");
         return false;
@@ -888,7 +890,7 @@ void stop()
 {
     close(serverSocket);
 
-    loginSystem.stop();
+    loginSystem->stop();
 
     cleanSecurity();
 
