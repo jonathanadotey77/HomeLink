@@ -7,25 +7,19 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
-#include <sys/stat.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <poll.h>
+#include <sys/stat.h>
 
 static const int RETRY_COUNT = 5;
 
 typedef struct HomeLinkClient
 {
-    int controlSocket;
     char serverControlAddressStr[64];
-    struct sockaddr_in6 serverControlAddress;
-    struct sockaddr_in6 serverDataAddress;
-    struct sockaddr_in6 clientControlAddress;
-    struct sockaddr_in6 clientDataAddress;
-    uint16_t serverControlPort;
-    uint16_t serverDataPort;
+    struct sockaddr_in6 serverAddress;
+    uint16_t serverPort;
     char serverPublicKey[512];
     char clientPublicKey[512];
     uint8_t aesKey[32];
@@ -126,8 +120,7 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
     }
 
     memset(client, 0, sizeof(HomeLinkClient));
-    client->serverControlPort = 0;
-    client->serverDataPort = 0;
+    client->serverPort = 0;
 
     for (int i = 0; i < argc; ++i)
     {
@@ -140,19 +133,7 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
             continue;
         }
 
-        const char *hostId = "--host-id";
-        const size_t hostIdLen = strlen(hostId);
-
-        const char *serverIpAddress = "--server-address";
-        const size_t serverIpAddressLen = strlen(serverIpAddress);
-
-        const char *serverControlPort = "--server-control-port";
-        const size_t serverControlPortLen = strlen(serverControlPort);
-
-        const char *serverDataPort = "--server-data-port";
-        const size_t serverDataPortLen = strlen(serverDataPort);
-
-        if (strlen(token) == hostIdLen && strncmp(token, hostId, hostIdLen) == 0)
+        if (stringEqual(token, "--host-id"))
         {
             char *field = strtok(NULL, "=");
             if (field == NULL || strlen(field) == 0)
@@ -162,8 +143,7 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
             }
             strncpy(client->hostId, field, sizeof(client->hostId) - 1);
         }
-
-        else if (strlen(token) == serverIpAddressLen && strncmp(token, serverIpAddress, serverIpAddressLen) == 0)
+        else if (stringEqual(token, "--server-address"))
         {
             char *field = strtok(NULL, "=");
             if (field == NULL || strlen(field) == 0)
@@ -174,8 +154,7 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
 
             strncpy(client->serverControlAddressStr, field, sizeof(client->serverControlAddressStr));
         }
-
-        else if (strlen(token) == serverControlPortLen && strncmp(token, serverControlPort, serverControlPortLen) == 0)
+        else if (stringEqual(token, "--server-port"))
         {
             char *field = strtok(NULL, "=");
             if (field == NULL || strlen(field) == 0)
@@ -200,119 +179,32 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
                 return false;
             }
 
-            client->serverControlPort = (uint16_t)i;
-        }
-
-        else if (strlen(token) == serverDataPortLen && strncmp(token, serverDataPort, serverDataPortLen) == 0)
-        {
-            char *field = strtok(NULL, "=");
-            if (field == NULL || strlen(field) == 0)
-            {
-                fprintf(stderr, "Field for %s cannot be empty\n", token);
-                return false;
-            }
-
-            for (char *p = field; *p != '\0'; ++p)
-            {
-                if (!isdigit(*p))
-                {
-                    fprintf(stderr, "Invalid value for %s\n", token);
-                    return false;
-                }
-            }
-
-            int i = atoi(field);
-            if (i == 0 || i >= UINT16_MAX)
-            {
-                fprintf(stderr, "Invalid value for %s\n", token);
-                return false;
-            }
-
-            client->serverDataPort = (uint16_t)i;
+            client->serverPort = (uint16_t)i;
         }
     }
 
-    if (client->serverControlAddressStr[0] == 0)
-    {
-        fprintf(stderr, "--server-address is a required argument for client intialization\n");
-        return false;
-    }
     if (client->hostId[0] == 0)
     {
         fprintf(stderr, "--host-id is a required argument for client intialization\n");
         return false;
     }
-    if (client->serverControlPort == 0)
+    if (client->serverControlAddressStr[0] == 0)
     {
-        fprintf(stderr, "--control-port is a required argument for client intialization\n");
+        fprintf(stderr, "--server-address is a required argument for client intialization\n");
         return false;
     }
-    if (client->serverDataPort == 0)
+    if (client->serverPort == 0)
     {
-        fprintf(stderr, "--data-port is a required argument for client intialization\n");
-        return false;
-    }
-
-    client->serverControlAddress.sin6_family = AF_INET6;
-    struct in6_addr serverInAddress = parseIpAddress(client->serverControlAddressStr);
-    memcpy(&client->serverControlAddress.sin6_addr, &serverInAddress, sizeof(client->serverControlAddress.sin6_addr));
-    client->serverControlAddress.sin6_port = htons(client->serverControlPort);
-    client->serverControlAddress.sin6_flowinfo = 0;
-    client->serverControlAddress.sin6_scope_id = 0;
-
-    client->serverDataAddress.sin6_family = AF_INET6;
-    memcpy(&client->serverDataAddress.sin6_addr, &serverInAddress, sizeof(client->serverDataAddress.sin6_addr));
-    client->serverDataAddress.sin6_port = htons(client->serverDataPort);
-    client->serverDataAddress.sin6_flowinfo = 0;
-    client->serverDataAddress.sin6_scope_id = 0;
-
-    client->clientControlAddress.sin6_family = AF_INET6;
-    client->clientControlAddress.sin6_addr = in6addr_any;
-    client->clientControlAddress.sin6_scope_id = 0;
-    client->clientControlAddress.sin6_flowinfo = 0;
-
-    client->clientDataAddress.sin6_family = AF_INET6;
-    client->clientDataAddress.sin6_addr = in6addr_any;
-    client->clientDataAddress.sin6_scope_id = 0;
-    client->clientDataAddress.sin6_flowinfo = 0;
-
-    char out1[1024] = {0};
-    getIpv6Str(out1, &client->clientControlAddress.sin6_addr);
-
-    char out2[1024] = {0};
-    getIpv6Str(out2, &client->clientDataAddress.sin6_addr);
-
-    client->controlSocket = socket(AF_INET6, SOCK_DGRAM, 0);
-    if (client->controlSocket < 0)
-    {
-        fprintf(stderr, "socket() failed\n");
+        fprintf(stderr, "--server-port is a required argument for client intialization\n");
         return false;
     }
 
-    bool bound = false;
-    for (int i = 0; i < 10; ++i)
-    {
-        uint16_t port = randomPort(50000, 59999);
-        client->clientControlAddress.sin6_port = htons(port);
-        if (bind(client->controlSocket, (const struct sockaddr *)&client->clientControlAddress, sizeof(client->clientControlAddress)) >= 0)
-        {
-            bound = true;
-            break;
-        }
-    }
-
-    if (!bound)
-    {
-        fprintf(stderr, "bind() failed [%d]\n", errno);
-        close(client->controlSocket);
-        return false;
-    }
-
-    if (connect(client->controlSocket, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress)) < 0)
-    {
-        fprintf(stderr, "connect() failed [%d\n]", errno);
-        close(client->controlSocket);
-    }
+    struct in6_addr serverIpAddress = parseIpAddress(client->serverControlAddressStr);
+    client->serverAddress.sin6_family = AF_INET6;
+    memcpy(&client->serverAddress.sin6_addr, &serverIpAddress, sizeof(client->serverAddress.sin6_addr));
+    client->serverAddress.sin6_port = htons(client->serverPort);
+    client->serverAddress.sin6_flowinfo = 0;
+    client->serverAddress.sin6_scope_id = 0;
 
     strncpy(client->serviceId, serviceId, sizeof(client->serviceId));
 
@@ -323,11 +215,19 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
 
 bool HomeLinkClient__fetchKeys(HomeLinkClient *client)
 {
-    struct pollfd fds[1];
-    memset(fds, 0, sizeof(fds));
+    int sd = socket(AF_INET6, SOCK_STREAM, 0);
+    if (sd < 0)
+    {
+        fprintf(stderr, "socket() failed [%d]\n", errno);
+        return e_RegisterFailed;
+    }
 
-    struct sockaddr_in6 sourceAddress = {0};
-    socklen_t sourceAddressLen = sizeof(sourceAddress);
+    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
+    {
+        fprintf(stderr, "connect() failed [%d]\n", errno);
+        close(sd);
+        return e_RegisterFailed;
+    }
 
     KeyRequestPacket keyRequestPacket;
     memset(&keyRequestPacket, 0, sizeof(keyRequestPacket));
@@ -347,42 +247,30 @@ bool HomeLinkClient__fetchKeys(HomeLinkClient *client)
         randomBytes((uint8_t *)&connectionId, sizeof(connectionId));
         keyRequestPacket.connectionId = connectionId;
         KeyRequestPacket_serialize(buffer, &keyRequestPacket);
-        int rc = sendto(client->controlSocket, buffer, KeyRequestPacket_SIZE, 0, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress));
-        if (rc < 0)
+
+        bool status = sendBufferTcp(sd, buffer, 1);
+        if (!status)
         {
-            fprintf(stderr, "sendto() failed [%d]\n", errno);
+            fprintf(stderr, "sendBufferTcp() failed\n");
+            close(sd);
+            return false;
+        }
+
+        status = sendBufferTcp(sd, buffer + 1, KeyRequestPacket_SIZE - 1);
+        if (!status)
+        {
+            fprintf(stderr, "sendBufferTcp() failed\n");
+            close(sd);
             return false;
         }
 
         memset(buffer, 0, sizeof(buffer));
-
-        fds[0].fd = client->controlSocket;
-        fds[0].events = POLLIN;
-        fds[0].revents = 0;
-
-        rc = poll(fds, 1, 3000);
-        if (rc < 0)
+        status = recvBufferTcp(sd, buffer, KeyResponsePacket_SIZE);
+        if (!status)
         {
-            fprintf(stderr, "poll() failed [%d]\n", errno);
+            fprintf(stderr, "recvBufferTcp() failed\n");
+            close(sd);
             return false;
-        }
-        else if (rc == 0)
-        {
-            continue;
-        }
-
-        sourceAddressLen = sizeof(sourceAddress);
-
-        rc = recvfrom(client->controlSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&sourceAddress, &sourceAddressLen);
-        if (rc < 0)
-        {
-            fprintf(stderr, "recvfrom() failed [%d]\n", errno);
-            return false;
-        }
-
-        if ((HomeLinkPacketType)buffer[0] != e_KeyResponse)
-        {
-            continue;
         }
 
         KeyResponsePacket keyResponsePacket;
@@ -409,16 +297,35 @@ bool HomeLinkClient__fetchKeys(HomeLinkClient *client)
         return true;
     }
 
+    close(sd);
+
     return false;
 }
 
 RegisterStatus HomeLinkClient__registerHost(HomeLinkClient *client)
 {
+    int sd = socket(AF_INET6, SOCK_STREAM, 0);
+    if (sd < 0)
+    {
+        fprintf(stderr, "socket() failed [%d]\n", errno);
+        return e_RegisterFailed;
+    }
+
+    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
+    {
+        fprintf(stderr, "connect() failed [%d]\n", errno);
+        close(sd);
+        return e_RegisterFailed;
+    }
+
     const char *hostKey = getHostKey();
     if (hostKey == NULL)
     {
         fprintf(stderr, "Failed to read host key\n");
+        close(sd);
+        return e_RegisterFailed;
     }
+
     RegisterRequestPacket registerRequestPacket;
     uint8_t buffer[1024];
     for (int i = 0; i < RETRY_COUNT; ++i)
@@ -433,44 +340,49 @@ RegisterStatus HomeLinkClient__registerHost(HomeLinkClient *client)
         strncpy((char *)(data + 32), hostKey, 65);
         memset(data + 104, 0, 24);
         size_t len = sizeof(registerRequestPacket.data);
-        bool status = rsaEncrypt(registerRequestPacket.data, &len, data, sizeof(data), client->serverPublicKey);
-        if (!status)
+        bool success = rsaEncrypt(registerRequestPacket.data, &len, data, sizeof(data), client->serverPublicKey);
+        if (!success)
         {
             fprintf(stderr, "rsaEncrypt() failed\n");
+            close(sd);
             return e_RegisterFailed;
         }
 
         memset(data, 0, sizeof(data));
 
-        struct sockaddr_in6 sourceAddress = {0};
-        socklen_t sourceAddressLen = sizeof(sourceAddress);
-
         RegisterRequestPacket_serialize(buffer, &registerRequestPacket);
-        int rc = sendto(client->controlSocket, buffer, RegisterRequestPacket_SIZE, 0, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress));
-        if (rc < 0)
+        bool status = sendBufferTcp(sd, buffer, 1);
+        if (!status)
         {
-            fprintf(stderr, "sendto() failed [%d]\n", errno);
+            fprintf(stderr, "sendBufferTcp() failed\n");
+            close(sd);
+            return e_RegisterFailed;
+        }
+
+        status = sendBufferTcp(sd, buffer + 1, RegisterRequestPacket_SIZE - 1);
+        if (!status)
+        {
+            fprintf(stderr, "sendBufferTcp() failed\n");
+            close(sd);
             return e_RegisterFailed;
         }
 
         memset(buffer, 0, sizeof(buffer));
-        rc = recvfrom(client->controlSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&sourceAddress, &sourceAddressLen);
-        if (rc < 0)
+        status = recvBufferTcp(sd, buffer, RegisterResponsePacket_SIZE);
+        if (!status)
         {
-            fprintf(stderr, "recvfrom() failed [%d]\n", errno);
+            fprintf(stderr, "recvBufferTcp() failed\n");
+            close(sd);
             return e_RegisterFailed;
-        }
-
-        if (rc == RegisterResponsePacket_SIZE && buffer[0] == e_RegisterResponse)
-        {
-            break;
         }
 
         if (i + 1 == RETRY_COUNT)
         {
+            close(sd);
             return e_RegisterFailed;
         }
     }
+    close(sd);
 
     RegisterResponsePacket registerResponsePacket = {0};
     RegisterResponsePacket_deserialize(&registerResponsePacket, buffer);
@@ -480,15 +392,30 @@ RegisterStatus HomeLinkClient__registerHost(HomeLinkClient *client)
 
 RegisterStatus HomeLinkClient__registerService(HomeLinkClient *client, const char *serviceId, const char *password)
 {
-    struct pollfd fds[1];
-    memset(fds, 0, sizeof(fds));
+    int sd = socket(AF_INET6, SOCK_STREAM, 0);
+    if (sd < 0)
+    {
+        fprintf(stderr, "socket() failed [%d]\n", errno);
+        return e_RegisterFailed;
+    }
 
-    struct sockaddr_in6 sourceAddress = {0};
-    socklen_t sourceAddressLen = sizeof(sourceAddress);
+    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
+    {
+        fprintf(stderr, "connect() failed [%d]\n", errno);
+        close(sd);
+        return e_RegisterFailed;
+    }
 
     char *hashedPassword = hashPassword(password, strlen(password));
     uint8_t passwordData[192] = {0};
 
+    const char *hostKey = getHostKey();
+    if (hostKey == NULL)
+    {
+        fprintf(stderr, "Failed to read host key\n");
+        close(sd);
+        return e_RegisterFailed;
+    }
     strncpy((char *)(passwordData) + 32, getHostKey(), 65);
     strncpy((char *)(passwordData) + 97, hashedPassword, 65);
     memset(hashedPassword, 0, strlen(hashedPassword));
@@ -497,6 +424,7 @@ RegisterStatus HomeLinkClient__registerService(HomeLinkClient *client, const cha
     passwordData[96] = '\0';
     passwordData[161] = '\0';
     uint8_t buffer[1024];
+
     for (int i = 0; i < RETRY_COUNT; ++i)
     {
         RegisterRequestPacket registerRequestPacket;
@@ -516,50 +444,40 @@ RegisterStatus HomeLinkClient__registerService(HomeLinkClient *client, const cha
         memset(buffer, 0, sizeof(buffer));
         RegisterRequestPacket_serialize(buffer, &registerRequestPacket);
 
-        int rc = sendto(client->controlSocket, buffer, RegisterRequestPacket_SIZE, 0, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress));
-        if (rc < 0)
+        bool status = sendBufferTcp(sd, buffer, 1);
+        if (!status)
         {
-            fprintf(stderr, "sendto() failed [%d]\n", errno);
+            fprintf(stderr, "sendBufferTcp() failed [%d]\n", errno);
             memset(passwordData, 0, sizeof(passwordData));
-            return false;
-        }
-
-        fds[0].fd = client->controlSocket;
-        fds[0].events = POLLIN;
-        fds[0].revents = 0;
-
-        rc = poll(fds, 1, 3000);
-        if (rc < 0)
-        {
-            fprintf(stderr, "poll() failed [%d]\n", errno);
-            memset(passwordData, 0, sizeof(passwordData));
-            return false;
-        }
-        else if (rc == 0)
-        {
-            continue;
-        }
-
-        memset(buffer, 0, sizeof(buffer));
-        sourceAddressLen = sizeof(sourceAddress);
-
-        rc = recvfrom(client->controlSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&sourceAddress, &sourceAddressLen);
-        if (rc < 0)
-        {
-            fprintf(stderr, "recvfrom() failed [%d]\n", errno);
-            memset(passwordData, 0, sizeof(passwordData));
+            close(sd);
             return e_RegisterFailed;
         }
 
-        if (rc == 0 || buffer[0] != e_RegisterResponse || rc != RegisterResponsePacket_SIZE)
+        status = sendBufferTcp(sd, buffer + 1, RegisterRequestPacket_SIZE - 1);
+        if (!status)
         {
-            continue;
+            fprintf(stderr, "sendBufferTcp() failed [%d]\n", errno);
+            memset(passwordData, 0, sizeof(passwordData));
+            close(sd);
+            return e_RegisterFailed;
+        }
+
+        memset(buffer, 0, sizeof(buffer));
+
+        status = recvBufferTcp(sd, buffer, RegisterResponsePacket_SIZE);
+        if (!status)
+        {
+            fprintf(stderr, "recvBufferTcp() failed\n");
+            memset(passwordData, 0, sizeof(passwordData));
+            close(sd);
+            return e_RegisterFailed;
         }
 
         RegisterResponsePacket registerResponsePacket;
         RegisterResponsePacket_deserialize(&registerResponsePacket, buffer);
 
         memset(passwordData, 0, sizeof(passwordData));
+        close(sd);
         if (registerResponsePacket.status == e_AlreadyExists || registerResponsePacket.status == e_RegisterSuccess)
         {
             return registerResponsePacket.status;
@@ -572,16 +490,25 @@ RegisterStatus HomeLinkClient__registerService(HomeLinkClient *client, const cha
     }
 
     memset(passwordData, 0, sizeof(passwordData));
+    close(sd);
     return e_RegisterFailed;
 }
 
 bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
 {
-    struct pollfd fds[1];
-    memset(fds, 0, sizeof(fds));
+    int sd = socket(AF_INET6, SOCK_STREAM, 0);
+    if (sd < 0)
+    {
+        fprintf(stderr, "socket() failed [%d]\n", errno);
+        return e_RegisterFailed;
+    }
 
-    struct sockaddr_in6 sourceAddress = {0};
-    socklen_t sourceAddressLen = sizeof(sourceAddress);
+    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
+    {
+        fprintf(stderr, "connect() failed [%d]\n", errno);
+        close(sd);
+        return e_RegisterFailed;
+    }
 
     uint8_t buffer[1024] = {0};
 
@@ -611,54 +538,45 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
 
         LoginRequestPacket_serialize(buffer, &loginRequestPacket);
 
-        int rc = sendto(client->controlSocket, buffer, LoginRequestPacket_SIZE, 0, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress));
-        if (rc < 0)
+        bool status = sendBufferTcp(sd, buffer, 1);
+        if (!status)
         {
-            fprintf(stderr, "sendto() failed [%d]\n", errno);
+            fprintf(stderr, "sendBufferTcp() failed\n");
             memset(passwordData, 0, sizeof(passwordData));
+            close(sd);
             return false;
         }
 
-        fds[0].fd = client->controlSocket;
-        fds[0].events = POLLIN;
-        fds[0].revents = 0;
-
-        rc = poll(fds, 1, 3000);
-        if (rc < 0)
+        status = sendBufferTcp(sd, buffer + 1, LoginRequestPacket_SIZE - 1);
+        if (!status)
         {
-            fprintf(stderr, "poll() failed [%d]\n", errno);
+            fprintf(stderr, "sendBufferTcp() failed\n");
             memset(passwordData, 0, sizeof(passwordData));
-            return false;
-        }
-        else if (rc == 0)
-        {
-            continue;
-        }
-
-        rc = recvfrom(client->controlSocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&sourceAddress, &sourceAddressLen);
-        if (rc < 0)
-        {
-            fprintf(stderr, "recvfrom() failed [%d]\n", errno);
+            close(sd);
             return false;
         }
 
-        if (rc == 0 || buffer[0] != e_LoginResponse || rc != LoginResponsePacket_SIZE)
+        status = recvBufferTcp(sd, buffer, LoginResponsePacket_SIZE);
+        if (!status)
         {
-            continue;
+            fprintf(stderr, "recvBufferTcp() failed\n");
+            close(sd);
+            return false;
         }
 
         LoginResponsePacket loginResponsePacket;
         LoginResponsePacket_deserialize(&loginResponsePacket, buffer);
 
-        LoginStatus status = loginResponsePacket.status;
+        LoginStatus loginStatus = loginResponsePacket.status;
 
-        if (status == e_LoginFailed)
+        if (loginStatus == e_LoginFailed)
         {
             fprintf(stderr, "Incorrect password\n");
-            return false;
             memset(passwordData, 0, sizeof(passwordData));
+            close(sd);
+            return false;
         }
-        else if (status == e_LoginSuccess)
+        else if (loginStatus == e_LoginSuccess)
         {
             size_t len = sizeof(client->sessionKey);
             rsaDecrypt((uint8_t *)client->sessionKey, &len, loginResponsePacket.sessionKey, sizeof(loginResponsePacket.sessionKey), NULL);
@@ -668,27 +586,64 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
         {
             fprintf(stderr, "Login error\n");
             memset(passwordData, 0, sizeof(passwordData));
+            close(sd);
             return false;
         }
     }
 
     memset(passwordData, 0, sizeof(passwordData));
-
+    close(sd);
     return true;
 }
 
 void HomeLinkClient__logout(HomeLinkClient *client)
 {
+    int sd = socket(AF_INET6, SOCK_STREAM, 0);
+    if (sd < 0)
+    {
+        fprintf(stderr, "socket() failed [%d]\n", errno);
+        return;
+    }
+
+    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
+    {
+        fprintf(stderr, "connect() failed [%d]\n", errno);
+        close(sd);
+        return;
+    }
+
     uint8_t buffer[1024] = {0};
     LogoutPacket logoutPacket;
     memset(&logoutPacket, 0, sizeof(logoutPacket));
     logoutPacket.packetType = e_Logout;
     logoutPacket.connectionId = client->connectionId;
     size_t len = sizeof(logoutPacket.sessionKey);
-    rsaEncrypt(logoutPacket.sessionKey, &len, (uint8_t *)client->sessionKey, strlen(client->sessionKey) + 1, client->serverPublicKey);
+    bool status = rsaEncrypt(logoutPacket.sessionKey, &len, (uint8_t *)client->sessionKey, strlen(client->sessionKey) + 1, client->serverPublicKey);
+    if (!status)
+    {
+        fprintf(stderr, "rsaEncrypt() failed\n");
+        close(sd);
+        return;
+    }
 
     LogoutPacket_serialize(buffer, &logoutPacket);
-    sendto(client->controlSocket, buffer, LogoutPacket__SIZE, 0, (const struct sockaddr *)&client->serverControlAddress, sizeof(client->serverControlAddress));
+    status = sendBufferTcp(sd, buffer, 1);
+    if (!status)
+    {
+        fprintf(stderr, "sendBufferTcp() failed\n");
+        close(sd);
+        return;
+    }
+
+    status = sendBufferTcp(sd, buffer + 1, LogoutPacket__SIZE - 1);
+    if (!status)
+    {
+        fprintf(stderr, "sendBufferTcp() failed\n");
+        close(sd);
+        return;
+    }
+
+    close(sd);
 }
 
 char *HomeLinkClient__readFile(HomeLinkClient *client, const char *directory)
@@ -700,7 +655,7 @@ char *HomeLinkClient__readFile(HomeLinkClient *client, const char *directory)
         return NULL;
     }
 
-    if (connect(sd, (const struct sockaddr *)&client->serverDataAddress, sizeof(client->serverDataAddress)) < 0)
+    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
     {
         fprintf(stderr, "connect() failed [%d]\n", errno);
         close(sd);
@@ -731,7 +686,6 @@ char *HomeLinkClient__readFile(HomeLinkClient *client, const char *directory)
     if (sd < 0)
     {
         fprintf(stderr, "socket() failed\n");
-        close(client->controlSocket);
         exit(1);
     }
 
@@ -762,7 +716,7 @@ bool HomeLinkClient__writeFile(HomeLinkClient *client, const char *destinationHo
 
     snprintf(command, sizeof(command) - 1, "WRITE_FILE %s %s %s %llu", destinationHostId, destinationServiceId, remotePath, (unsigned long long)fileSize);
 
-    if (connect(sd, (const struct sockaddr *)&client->serverDataAddress, sizeof(client->serverDataAddress)) < 0)
+    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
     {
         fprintf(stderr, "connect() failed [%d]\n", errno);
         close(sd);
@@ -783,5 +737,4 @@ bool HomeLinkClient__writeFile(HomeLinkClient *client, const char *destinationHo
 void HomeLinkClient__destruct(HomeLinkClient *client)
 {
     memset(client->sessionKey, 0, sizeof(client->sessionKey));
-    close(client->controlSocket);
 }

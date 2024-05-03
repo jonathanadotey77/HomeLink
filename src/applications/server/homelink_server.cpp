@@ -26,16 +26,12 @@ namespace fs = std::filesystem;
 
 bool verbose = false;
 
-uint16_t controlPort = 10000;
-uint16_t dataPort = 10001;
+uint16_t serverPort = 10000;
 
-int controlSocket = -1;
-int dataSocket = -1;
+int serverSocket = -1;
 
-struct sockaddr_in6 controlAddress;
-struct sockaddr_in6 dataAddress;
+struct sockaddr_in6 serverAddress;
 
-pthread_t controlThreadId = 0;
 pthread_t dataThreadId = 0;
 
 std::mutex serverLock;
@@ -44,9 +40,6 @@ volatile bool isStopped = false;
 
 std::unordered_map<uint32_t, KeySet> clientKeys;
 std::mutex clientKeysLock;
-
-std::unordered_set<pthread_t> clientThreads;
-std::mutex clientThreadsLock;
 
 FileQueue fileQueue;
 LoginSystem &loginSystem = LoginSystem::getInstance();
@@ -74,19 +67,7 @@ bool parseArgs(int argc, char *argv[])
     {
         std::string command(argv[i]);
 
-        if (command == "--control-port")
-        {
-            int p = atoi(argv[i + 1]);
-            if (p > UINT16_MAX || p <= 0)
-            {
-                std::cerr << "Invalid control port" << std::endl;
-                return false;
-            }
-
-            controlPort = static_cast<uint16_t>(p);
-            i += 2;
-        }
-        else if (command == "--data-port")
+        if (command == "--data-port")
         {
             int p = atoi(argv[i + 1]);
             if (p > UINT16_MAX || p <= 0)
@@ -95,7 +76,7 @@ bool parseArgs(int argc, char *argv[])
                 return false;
             }
 
-            dataPort = static_cast<uint16_t>(p);
+            serverPort = static_cast<uint16_t>(p);
             i += 2;
         }
         else if (command == "--verbose")
@@ -185,364 +166,289 @@ bool validateClient(uint32_t connectionId, const uint8_t *encryptedSessionKey,
     return success;
 }
 
-void *controlThread(void *)
+void handleKeyRequest(int sd, const KeyRequestPacket *keyRequestPacket)
 {
-    struct sockaddr_in6 sourceAddress;
-    socklen_t sourceAddressLen = sizeof(sourceAddress);
-    int rc = 0;
-    uint8_t buffer[1024];
-    struct pollfd fds[1];
-    while (!isStopped)
     {
-        fds[0].fd = controlSocket;
-        fds[0].events = POLLIN;
-        fds[0].revents = 0;
-
-        rc = poll(fds, 1, 3000);
-        if (rc < 0)
+        int idx = sizeof(keyRequestPacket->rsaPublicKey) - 1;
+        bool foundNullCharacter = false;
+        while (idx >= 0)
         {
-            fprintf(stderr, "poll() error [%d]\n", errno);
-        }
-        else if (rc == 0)
-        {
-            continue;
-        }
-
-        memset(&sourceAddress, 0, sizeof(sourceAddress));
-        memset(buffer, 0, sizeof(buffer));
-        rc = recvfrom(controlSocket, buffer, sizeof(buffer), 0,
-                      reinterpret_cast<struct sockaddr *>(&sourceAddress),
-                      &sourceAddressLen);
-        if (rc < 0)
-        {
-            fprintf(stderr, "recfrom() failed [%d]\n", errno);
-            continue;
-        }
-        else if (rc == 0)
-        {
-            fprintf(stderr, "recvfrom(): 0 bytes received\n");
-            continue;
-        }
-        const uint8_t packetType = buffer[0];
-
-        if (verbose)
-        {
-            char *ipAddress = new char[64];
-            getIpv6Str(ipAddress, &sourceAddress.sin6_addr);
-            printf("Received %d bytes from %s:%d \n", rc, ipAddress,
-                   ntohs(sourceAddress.sin6_port));
-            printf("    Packet type: %d\n", static_cast<int>(packetType));
-            delete[] ipAddress;
-        }
-
-        if (packetType == e_LoginRequest && rc == LoginRequestPacket_SIZE)
-        {
-            LoginRequestPacket loginRequestPacket;
-            LoginRequestPacket_deserialize(&loginRequestPacket, buffer);
-
-            uint8_t data[256] = {0};
-            size_t dataLen = sizeof(data);
-            rsaDecrypt(data, &dataLen, loginRequestPacket.data,
-                       sizeof(loginRequestPacket.data), NULL);
-
-            if (verbose)
+            if (keyRequestPacket->rsaPublicKey[idx] == '\0')
             {
-                printf("Login request received with {hostId, serviceID} = {%s, %s}\n",
-                       loginRequestPacket.hostId, loginRequestPacket.serviceId);
-            }
-            const uint32_t connectionId = loginRequestPacket.connectionId;
-            clientKeysLock.lock();
-            if (clientKeys.find(connectionId) == clientKeys.end())
-            {
-                if (verbose)
-                {
-                    printf("Invalid connectionId {%u}\n", connectionId);
-                }
-                continue;
-            }
-            uint64_t tag = ntohl(*(reinterpret_cast<const uint64_t *>(data)));
-            const char *hostId = loginRequestPacket.hostId;
-            const char *serviceId = loginRequestPacket.serviceId;
-            const char *hostKey = reinterpret_cast<const char *>(data + 32);
-            const char *password = reinterpret_cast<const char *>(data + 97);
-
-            if (clientKeys[connectionId].checkTag(tag))
-            {
-                LoginStatus status = loginSystem.tryLogin(hostId, serviceId, hostKey, password);
-                if (verbose)
-                {
-                    if (status == e_LoginSuccess)
-                    {
-                        printf("Login success\n");
-                    }
-                    else if (status == e_LoginFailed)
-                    {
-                        printf("Login failed\n");
-                    }
-                    else if (status == e_NoSuchService)
-                    {
-                        printf("No such service '%s'\n", serviceId);
-                    }
-                }
-
-                LoginResponsePacket loginResponsePacket;
-                loginResponsePacket.packetType = e_LoginResponse;
-                loginResponsePacket.status = status;
-
-                if (status == e_LoginSuccess)
-                {
-                    clientKeys[connectionId].setUser(hostId, serviceId);
-
-                    const char *sessionToken = clientKeys[connectionId].newSessionKey();
-                    size_t outLen = sizeof(loginResponsePacket.sessionKey);
-
-                    bool success = rsaEncrypt(loginResponsePacket.sessionKey, &outLen,
-                                              reinterpret_cast<const uint8_t *>(sessionToken),
-                                              strlen(sessionToken) + 1,
-                                              clientKeys[connectionId].getPublicKey());
-                    if (!success)
-                    {
-                        clientKeysLock.unlock();
-                        fprintf(stderr, "rsaEncrypt() failed\n");
-                        memset(buffer, 0, sizeof(buffer));
-                        continue;
-                    }
-                }
-                else
-                {
-                    randomBytes(loginResponsePacket.sessionKey, sizeof(loginResponsePacket.sessionKey));
-                }
-
-                memset(buffer, 0, sizeof(buffer));
-                LoginResponsePacket_serialize(buffer, &loginResponsePacket);
-
-                rc = sendto(controlSocket, buffer, LoginResponsePacket_SIZE, 0,
-                            reinterpret_cast<const struct sockaddr *>(&sourceAddress),
-                            sourceAddressLen);
-                if (rc < 0)
-                {
-                    fprintf(stderr, "sendto() failed [%d]\n", errno);
-                }
-
-                memset(&loginResponsePacket, 0, sizeof(loginResponsePacket));
-            }
-            clientKeysLock.unlock();
-
-            memset(&loginRequestPacket, 0, sizeof(loginRequestPacket));
-        }
-        else if (packetType == e_RegisterRequest)
-        {
-            RegisterRequestPacket registerRequestPacket;
-            RegisterRequestPacket_deserialize(&registerRequestPacket, buffer);
-
-            if (verbose)
-            {
-                if (registerRequestPacket.registrationType == e_HostRegistration)
-                {
-                    printf("Register request received with {hostId} = {%s}\n", registerRequestPacket.hostId);
-                }
-                else if (registerRequestPacket.registrationType == e_ServiceRegistration)
-                {
-                    printf("Register request received with {hostId, serviceID} = {%s, %s}\n", registerRequestPacket.hostId, registerRequestPacket.serviceId);
-                }
-            }
-
-            if (registerRequestPacket.registrationType != e_HostRegistration && registerRequestPacket.registrationType != e_ServiceRegistration)
-            {
-                if (verbose)
-                {
-                    printf("Register request received with invalid registration type\n");
-                }
-
-                memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
-                continue;
-            }
-
-            bool valid = true;
-
-            for (char *c = registerRequestPacket.hostId; *c != '\0'; ++c)
-            {
-                if (*c == '/')
-                {
-                    if (verbose)
-                    {
-                        printf("Invalid hostId");
-                    }
-
-                    valid = false;
-                }
-            }
-
-            for (char *c = registerRequestPacket.serviceId; *c != '\0'; ++c)
-            {
-                if (*c == '/')
-                {
-                    if (verbose)
-                    {
-                        printf("Invalid serviceId");
-                    }
-
-                    valid = false;
-                }
-            }
-
-            if (!valid)
-            {
-                memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
-                continue;
-            }
-
-            uint8_t data[256] = {0};
-            size_t dataLen = sizeof(data);
-            bool decrypted = rsaDecrypt(data, &dataLen, registerRequestPacket.data,
-                                        sizeof(registerRequestPacket.data), NULL);
-
-            if (!decrypted)
-            {
-                if (verbose)
-                {
-                    printf("Decryption failed\n");
-                }
-
-                memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
-                memset(data, 0, sizeof(data));
-                continue;
-            }
-
-            RegisterStatus status = e_RegisterFailed;
-
-            const char *hostId = registerRequestPacket.hostId;
-            char *hostKey = reinterpret_cast<char *>(data + 32);
-            hostKey[65] = '\0';
-            if (registerRequestPacket.registrationType == e_HostRegistration)
-            {
-                status = loginSystem.registerHost(hostId, hostKey);
-            }
-            else if (registerRequestPacket.registrationType ==
-                     e_ServiceRegistration)
-            {
-                const char *serviceId = registerRequestPacket.serviceId;
-                char *password = reinterpret_cast<char *>(data + 97);
-                password[65] = '\0';
-
-                status =
-                    loginSystem.registerService(hostId, serviceId, hostKey, password);
+                foundNullCharacter = true;
+                break;
             }
             else
             {
-                memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
-                memset(data, 0, sizeof(data));
-                continue;
-            }
-
-            if (verbose)
-            {
-                printf("Replying with status %d\n", static_cast<int>(status));
-            }
-            RegisterResponsePacket registerResponsePacket;
-            registerResponsePacket.packetType = e_RegisterResponse;
-            registerResponsePacket.status = static_cast<uint8_t>(status);
-
-            memset(buffer, 0, sizeof(buffer));
-            RegisterResponsePacket_serialize(buffer, &registerResponsePacket);
-
-            rc = sendto(controlSocket, buffer, RegisterResponsePacket_SIZE, 0,
-                        reinterpret_cast<const struct sockaddr *>(&sourceAddress),
-                        sourceAddressLen);
-            if (rc < 0)
-            {
-                fprintf(stderr, "sendto() failed [%d]\n", errno);
-            }
-
-            memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
-            memset(&registerResponsePacket, 0, sizeof(registerResponsePacket));
-            memset(data, 0, sizeof(data));
-        }
-        else if (packetType == e_KeyRequest && rc == KeyRequestPacket_SIZE)
-        {
-            KeyRequestPacket keyRequestPacket;
-            KeyRequestPacket_deserialize(&keyRequestPacket, buffer);
-            if (verbose)
-            {
-                printf("Connection id: %d\n", keyRequestPacket.connectionId);
-            }
-            {
-                int idx = sizeof(keyRequestPacket.rsaPublicKey) - 1;
-                bool foundNullCharacter = false;
-                while (idx >= 0)
-                {
-                    if (keyRequestPacket.rsaPublicKey[idx] == '\0')
-                    {
-                        foundNullCharacter = true;
-                        break;
-                    }
-                    else
-                    {
-                        idx -= 1;
-                    }
-                }
-
-                if (!foundNullCharacter)
-                {
-                    if (verbose)
-                    {
-                        printf("Invalid RSA key data\n");
-                        continue;
-                    }
-                }
-            }
-
-            bool success = clientKeys.insert({keyRequestPacket.connectionId, KeySet(keyRequestPacket.rsaPublicKey, strlen(keyRequestPacket.rsaPublicKey))}).second;
-
-            if (verbose)
-            {
-                printf("Key request %s\n", success ? "succeeded" : "failed");
-            }
-
-            KeyResponsePacket keyResponsePacket;
-            memset(&keyResponsePacket, 0, sizeof(keyResponsePacket));
-            keyResponsePacket.packetType = e_KeyResponse;
-            keyResponsePacket.success = success ? 1 : 0;
-
-            char publicKey[512] = {0};
-            size_t len = sizeof(keyResponsePacket.rsaPublicKey);
-            getRSAPublicKey(publicKey, &len);
-            strncpy(keyResponsePacket.rsaPublicKey, publicKey, len);
-
-            rsaEncrypt(keyResponsePacket.aesKey, &len,
-                       clientKeys[keyRequestPacket.connectionId].getAesKey(),
-                       AES_KEY_LEN / 8, keyRequestPacket.rsaPublicKey);
-
-            KeyResponsePacket_serialize(buffer, &keyResponsePacket);
-            int rc = sendto(controlSocket, buffer, KeyResponsePacket_SIZE, 0,
-                            reinterpret_cast<const struct sockaddr *>(&sourceAddress),
-                            sourceAddressLen);
-            if (rc < 0)
-            {
-                fprintf(stderr, "sendto() failed [%d]\n", errno);
+                idx -= 1;
             }
         }
-        else if (packetType == e_Logout)
-        {
-            LogoutPacket logoutPacket;
-            LogoutPacket_deserialize(&logoutPacket, buffer);
 
+        if (!foundNullCharacter)
+        {
             if (verbose)
             {
-                printf("Logout packet received {%u}\n", logoutPacket.connectionId);
+                printf("Invalid RSA key data\n");
+                return;
             }
-
-            if (validateClient(logoutPacket.connectionId, logoutPacket.sessionKey,
-                               sizeof(logoutPacket.sessionKey)))
-            {
-                clientKeys.erase(logoutPacket.connectionId);
-            }
-
-            memset(&logoutPacket, 0, sizeof(logoutPacket));
         }
     }
 
-    return NULL;
+    bool success = clientKeys.insert({keyRequestPacket->connectionId, KeySet(keyRequestPacket->rsaPublicKey, strlen(keyRequestPacket->rsaPublicKey))}).second;
+
+    if (verbose)
+    {
+        printf("Key request %s\n", success ? "succeeded" : "failed");
+    }
+
+    KeyResponsePacket keyResponsePacket;
+    memset(&keyResponsePacket, 0, sizeof(keyResponsePacket));
+    keyResponsePacket.packetType = e_KeyResponse;
+    keyResponsePacket.success = success ? 1 : 0;
+
+    char publicKey[512] = {0};
+    size_t len = sizeof(keyResponsePacket.rsaPublicKey);
+    getRSAPublicKey(publicKey, &len);
+    strncpy(keyResponsePacket.rsaPublicKey, publicKey, len);
+
+    uint8_t *aesKey = clientKeys[keyRequestPacket->connectionId].getAesKey();
+    rsaEncrypt(keyResponsePacket.aesKey, &len, aesKey, AES_KEY_LEN / 8, keyRequestPacket->rsaPublicKey);
+    memset(aesKey, 0, AES_KEY_LEN / 8);
+    delete[] aesKey;
+
+    uint8_t buffer[KeyResponsePacket_SIZE];
+
+    KeyResponsePacket_serialize(buffer, &keyResponsePacket);
+    bool status = sendBufferTcp(sd, buffer, KeyResponsePacket_SIZE);
+    if (!status)
+    {
+        fprintf(stderr, "sendBufferTcp() failed\n");
+    }
+}
+
+void handleRegisterRequest(int sd, const RegisterRequestPacket *registerRequestPacket)
+{
+    if (verbose)
+    {
+        if (registerRequestPacket->registrationType == e_HostRegistration)
+        {
+            printf("Register request received with {hostId} = {%s}\n", registerRequestPacket->hostId);
+        }
+        else if (registerRequestPacket->registrationType == e_ServiceRegistration)
+        {
+            printf("Register request received with {hostId, serviceID} = {%s, %s}\n", registerRequestPacket->hostId, registerRequestPacket->serviceId);
+        }
+    }
+
+    if (registerRequestPacket->registrationType != e_HostRegistration && registerRequestPacket->registrationType != e_ServiceRegistration)
+    {
+        if (verbose)
+        {
+            printf("Register request received with invalid registration type\n");
+        }
+
+        memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
+        return;
+    }
+
+    bool valid = true;
+
+    for (const char *c = registerRequestPacket->hostId; *c != '\0'; ++c)
+    {
+        if (*c == '/')
+        {
+            if (verbose)
+            {
+                printf("Invalid hostId");
+            }
+
+            valid = false;
+        }
+    }
+
+    for (const char *c = registerRequestPacket->serviceId; *c != '\0'; ++c)
+    {
+        if (*c == '/')
+        {
+            if (verbose)
+            {
+                printf("Invalid serviceId");
+            }
+
+            valid = false;
+        }
+    }
+
+    if (!valid)
+    {
+        memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
+        return;
+    }
+
+    uint8_t data[256] = {0};
+    size_t dataLen = sizeof(data);
+    bool decrypted = rsaDecrypt(data, &dataLen, registerRequestPacket->data,
+                                sizeof(registerRequestPacket->data), NULL);
+
+    if (!decrypted)
+    {
+        if (verbose)
+        {
+            printf("Decryption failed\n");
+        }
+
+        memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
+        memset(data, 0, sizeof(data));
+        return;
+    }
+
+    RegisterStatus status = e_RegisterFailed;
+
+    const char *hostId = registerRequestPacket->hostId;
+    char *hostKey = reinterpret_cast<char *>(data + 32);
+    hostKey[65] = '\0';
+    if (registerRequestPacket->registrationType == e_HostRegistration)
+    {
+        status = loginSystem.registerHost(hostId, hostKey);
+    }
+    else if (registerRequestPacket->registrationType ==
+             e_ServiceRegistration)
+    {
+        const char *serviceId = registerRequestPacket->serviceId;
+        char *password = reinterpret_cast<char *>(data + 97);
+        password[65] = '\0';
+
+        status =
+            loginSystem.registerService(hostId, serviceId, hostKey, password);
+    }
+    else
+    {
+        memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
+        memset(data, 0, sizeof(data));
+        return;
+    }
+
+    if (verbose)
+    {
+        printf("Replying with status %d\n", static_cast<int>(status));
+    }
+    RegisterResponsePacket registerResponsePacket;
+    registerResponsePacket.packetType = e_RegisterResponse;
+    registerResponsePacket.status = static_cast<uint8_t>(status);
+
+    uint8_t buffer[KeyResponsePacket_SIZE];
+    RegisterResponsePacket_serialize(buffer, &registerResponsePacket);
+
+    bool success = sendBufferTcp(sd, buffer, KeyResponsePacket_SIZE);
+    if (!success)
+    {
+        fprintf(stderr, "sendBufferTcp() failed\n");
+    }
+
+    memset(&registerResponsePacket, 0, sizeof(registerResponsePacket));
+    memset(data, 0, sizeof(data));
+}
+
+void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
+{
+    uint8_t data[256] = {0};
+    size_t dataLen = sizeof(data);
+    rsaDecrypt(data, &dataLen, loginRequestPacket->data,
+               sizeof(loginRequestPacket->data), NULL);
+
+    if (verbose)
+    {
+        printf("Login request received with {hostId, serviceID} = {%s, %s}\n",
+               loginRequestPacket->hostId, loginRequestPacket->serviceId);
+    }
+    const uint32_t connectionId = loginRequestPacket->connectionId;
+    clientKeysLock.lock();
+    if (clientKeys.find(connectionId) == clientKeys.end())
+    {
+        if (verbose)
+        {
+            printf("Invalid connectionId {%u}\n", connectionId);
+        }
+        return;
+    }
+    uint64_t tag = ntohl(*(reinterpret_cast<const uint64_t *>(data)));
+    const char *hostId = loginRequestPacket->hostId;
+    const char *serviceId = loginRequestPacket->serviceId;
+    const char *hostKey = reinterpret_cast<const char *>(data + 32);
+    const char *password = reinterpret_cast<const char *>(data + 97);
+
+    if (clientKeys[connectionId].checkTag(tag))
+    {
+        LoginStatus status = loginSystem.tryLogin(hostId, serviceId, hostKey, password);
+        if (verbose)
+        {
+            if (status == e_LoginSuccess)
+            {
+                printf("Login success\n");
+            }
+            else if (status == e_LoginFailed)
+            {
+                printf("Login failed\n");
+            }
+            else if (status == e_NoSuchService)
+            {
+                printf("No such service '%s'\n", serviceId);
+            }
+        }
+
+        LoginResponsePacket loginResponsePacket;
+        loginResponsePacket.packetType = e_LoginResponse;
+        loginResponsePacket.status = status;
+
+        if (status == e_LoginSuccess)
+        {
+            clientKeys[connectionId].setUser(hostId, serviceId);
+
+            const char *sessionToken = clientKeys[connectionId].newSessionKey();
+            size_t outLen = sizeof(loginResponsePacket.sessionKey);
+
+            bool success = rsaEncrypt(loginResponsePacket.sessionKey, &outLen,
+                                      reinterpret_cast<const uint8_t *>(sessionToken),
+                                      strlen(sessionToken) + 1,
+                                      clientKeys[connectionId].getPublicKey());
+            if (!success)
+            {
+                clientKeysLock.unlock();
+                fprintf(stderr, "rsaEncrypt() failed\n");
+                return;
+            }
+        }
+        else
+        {
+            randomBytes(loginResponsePacket.sessionKey, sizeof(loginResponsePacket.sessionKey));
+        }
+
+        uint8_t buffer[LoginResponsePacket_SIZE];
+        LoginResponsePacket_serialize(buffer, &loginResponsePacket);
+
+        bool success = sendBufferTcp(sd, buffer, LoginResponsePacket_SIZE);
+        if (!success)
+        {
+            fprintf(stderr, "sendBufferTcp() failed\n");
+        }
+
+        memset(&loginResponsePacket, 0, sizeof(loginResponsePacket));
+    }
+    clientKeysLock.unlock();
+}
+
+void handleLogout(const LogoutPacket *logoutPacket)
+{
+    if (verbose)
+    {
+        printf("Logout packet received {%u}\n", logoutPacket->connectionId);
+    }
+
+    if (validateClient(logoutPacket->connectionId, logoutPacket->sessionKey,
+                       sizeof(logoutPacket->sessionKey)))
+    {
+        clientKeys.erase(logoutPacket->connectionId);
+    }
 }
 
 void *clientThread(void *a)
@@ -554,34 +460,113 @@ void *clientThread(void *a)
 
     delete args;
 
-    uint8_t commandBuffer[CommandPacket_SIZE];
-    const size_t commandBufferLen = sizeof(commandBuffer);
-    uint8_t *aesKey = NULL;
-
     CommandPacket commandPacket;
+
+    char sourceAddressStr[64];
 
     if (verbose)
     {
-        char *ipAddress = new char[64];
-        memset(ipAddress, 0, 64);
-        getIpv6Str(ipAddress, &sourceAddress.sin6_addr);
-        printf("Received TCP connection from %s:%d \n", ipAddress,
-               ntohs(sourceAddress.sin6_port));
-        delete[] ipAddress;
+        getIpv6Str(sourceAddressStr, &sourceAddress.sin6_addr);
     }
 
-    while (!isStopped)
+    uint8_t buffer[1024];
+    uint8_t *aesKey = NULL;
+
+    // We check the first byte, which contains the packet type
+    bool status = recvBufferTcp(sd, buffer, 1);
+    if (!status)
     {
+        fprintf(stderr, "recvBufferTcp() failed\n");
+        close(sd);
+        return NULL;
+    }
+    HomeLinkPacketType packetType = static_cast<HomeLinkPacketType>(buffer[0]);
+
+    const bool isCommandPacket = packetType == e_Command;
+    if (packetType == e_KeyRequest)
+    {
+        status = recvBufferTcp(sd, buffer + 1, KeyRequestPacket_SIZE - 1);
+        if (!status)
+        {
+            fprintf(stderr, "recvBufferTcp() failed\n");
+            close(sd);
+            return NULL;
+        }
+
+        KeyRequestPacket keyRequestPacket;
+        KeyRequestPacket_deserialize(&keyRequestPacket, buffer);
+
+        if (verbose)
+        {
+            printf("Key request received from %s with connection id {%d}\n", sourceAddressStr, keyRequestPacket.connectionId);
+        }
+
+        handleKeyRequest(sd, &keyRequestPacket);
+    }
+    else if (packetType == e_RegisterRequest)
+    {
+        status = recvBufferTcp(sd, buffer + 1, RegisterRequestPacket_SIZE - 1);
+        if (!status)
+        {
+            fprintf(stderr, "recvBufferTcp() failed\n");
+            close(sd);
+            return NULL;
+        }
+
+        RegisterRequestPacket registerRequestPacket;
+        RegisterRequestPacket_deserialize(&registerRequestPacket, buffer);
+
+        handleRegisterRequest(sd, &registerRequestPacket);
+        memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
+    }
+    else if (packetType == e_LoginRequest)
+    {
+        status = recvBufferTcp(sd, buffer + 1, LoginRequestPacket_SIZE - 1);
+        if (!status)
+        {
+            fprintf(stderr, "recvBufferTcp() failed\n");
+            close(sd);
+            return NULL;
+        }
+
+        LoginRequestPacket loginRequestPacket;
+        LoginRequestPacket_deserialize(&loginRequestPacket, buffer);
+
+        handleLoginRequest(sd, &loginRequestPacket);
+        memset(&loginRequestPacket, 0, sizeof(loginRequestPacket));
+    }
+    else if (packetType == e_Logout)
+    {
+        status = recvBufferTcp(sd, buffer + 1, LogoutPacket__SIZE - 1);
+        if (!status)
+        {
+            fprintf(stderr, "recvBufferTcp() failed\n");
+            close(sd);
+            return NULL;
+        }
+
+        LogoutPacket logoutPacket;
+        LogoutPacket_deserialize(&logoutPacket, buffer);
+
+        handleLogout(&logoutPacket);
+        memset(&logoutPacket, 0, sizeof(logoutPacket));
+    }
+
+    while (isCommandPacket && !isStopped)
+    {
+        if (verbose)
+        {
+            printf("Received command packet from %s\n", sourceAddressStr);
+        }
         memset(&commandPacket, 0, sizeof(commandPacket));
-        memset(&commandBuffer, 0, sizeof(commandBuffer));
-        bool status = recvBufferTcp(sd, commandBuffer, commandBufferLen);
+        status = recvBufferTcp(sd, buffer + 1, CommandPacket_SIZE - 1);
         if (!status)
         {
             fprintf(stderr, "Failed to receive command\n");
             break;
         }
 
-        CommandPacket_deserialize(&commandPacket, commandBuffer);
+        CommandPacket_deserialize(&commandPacket, buffer);
 
         if (commandPacket.packetType != e_Command)
         {
@@ -793,7 +778,7 @@ void *clientThread(void *a)
 
 void *dataThread(void *)
 {
-    if (listen(dataSocket, 5) < 0)
+    if (listen(serverSocket, 5) < 0)
     {
         fprintf(stderr, "listen() failed [%d]\n", errno);
         return NULL;
@@ -810,7 +795,7 @@ void *dataThread(void *)
         memset(&sourceAddress, 0, sizeof(sourceAddress));
         sourceAddressLen = sizeof(sourceAddress);
 
-        fds[0].fd = dataSocket;
+        fds[0].fd = serverSocket;
         fds[0].events = POLLIN;
         fds[0].revents = 0;
 
@@ -827,7 +812,7 @@ void *dataThread(void *)
         }
 
         int sd =
-            accept(dataSocket, reinterpret_cast<struct sockaddr *>(&sourceAddress),
+            accept(serverSocket, reinterpret_cast<struct sockaddr *>(&sourceAddress),
                    &sourceAddressLen);
         if (sd < 0)
         {
@@ -842,10 +827,7 @@ void *dataThread(void *)
 
         pthread_t threadId = 0;
         pthread_create(&threadId, NULL, clientThread, args);
-
-        clientThreadsLock.lock();
-        clientThreads.insert(threadId);
-        clientThreadsLock.unlock();
+        pthread_detach(threadId);
     }
 
     return NULL;
@@ -864,20 +846,10 @@ bool start()
         return false;
     }
 
-    memset(&controlAddress, 0, sizeof(controlAddress));
-    controlSocket = socket(AF_INET6, SOCK_DGRAM, 0);
-    if (controlSocket < 0)
+    serverSocket = socket(AF_INET6, SOCK_STREAM, 0);
+    if (serverSocket < 0)
     {
         fprintf(stderr, "socket() failed [%d]\n", errno);
-        cleanSecurity();
-        return false;
-    }
-
-    dataSocket = socket(AF_INET6, SOCK_STREAM, 0);
-    if (dataSocket < 0)
-    {
-        fprintf(stderr, "socket() failed [%d]\n", errno);
-        close(controlSocket);
         cleanSecurity();
         return false;
     }
@@ -887,39 +859,26 @@ bool start()
     ling.l_linger = 0;
 
     int optval = 1;
-    setsockopt(dataSocket, SOL_SOCKET, SO_LINGER, &ling, sizeof(ling));
-    setsockopt(dataSocket, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
-    setsockopt(dataSocket, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
+    setsockopt(serverSocket, SOL_SOCKET, SO_LINGER, &ling, sizeof(ling));
+    setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+    setsockopt(serverSocket, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
 
-    controlAddress.sin6_family = AF_INET6;
-    controlAddress.sin6_addr = in6addr_any;
-    controlAddress.sin6_port = htons(controlPort);
-    controlAddress.sin6_flowinfo = 0;
-    controlAddress.sin6_scope_id = 0;
+    serverAddress.sin6_family = AF_INET6;
+    serverAddress.sin6_addr = in6addr_any;
+    serverAddress.sin6_port = htons(serverPort);
+    serverAddress.sin6_flowinfo = 0;
+    serverAddress.sin6_scope_id = 0;
 
-    dataAddress = controlAddress;
-    dataAddress.sin6_port = htons(dataPort);
-
-    if (bind(controlSocket, reinterpret_cast<const sockaddr *>(&controlAddress),
-             sizeof(controlAddress)) < 0)
-    {
-        fprintf(stderr, "bind() failed [%d]\n", errno);
-        cleanSecurity();
-        return false;
-    }
-
-    if (bind(dataSocket, reinterpret_cast<const struct sockaddr *>(&dataAddress),
-             sizeof(dataAddress)) < 0)
+    if (bind(serverSocket, reinterpret_cast<const struct sockaddr *>(&serverAddress),
+             sizeof(serverAddress)) < 0)
     {
         fprintf(stderr, "bind()  failed [%d]\n", errno);
-        close(controlSocket);
         cleanSecurity();
         return false;
     }
 
     signal(SIGTSTP, terminationHandler);
     signal(SIGINT, terminationHandler);
-    pthread_create(&controlThreadId, NULL, controlThread, NULL);
     pthread_create(&dataThreadId, NULL, dataThread, NULL);
 
     return true;
@@ -927,12 +886,13 @@ bool start()
 
 void stop()
 {
-    close(controlSocket);
-    close(dataSocket);
+    close(serverSocket);
 
     loginSystem.stop();
 
     cleanSecurity();
+
+    sleep(1);
 }
 
 int main(int argc, char *argv[])
@@ -949,18 +909,8 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    std::cout << "HomeLink server listening on ports " << dataPort
-              << " (TCP) and " << controlPort << " (UDP)" << std::endl;
-
-    pthread_join(controlThreadId, NULL);
+    std::cout << "HomeLink server listening on port " << serverPort << std::endl;
     pthread_join(dataThreadId, NULL);
-
-    clientThreadsLock.lock();
-    for (pthread_t tid : clientThreads)
-    {
-        pthread_join(tid, NULL);
-    }
-    clientThreadsLock.unlock();
 
     stop();
 

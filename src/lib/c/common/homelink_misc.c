@@ -16,6 +16,16 @@
 static struct in6_addr localIpAddress;
 static volatile bool foundIp = false;
 
+bool stringEqual(const char *s1, const char *s2)
+{
+    if (strlen(s1) != strlen(s2))
+    {
+        return false;
+    }
+
+    return strcmp(s1, s2) == 0;
+}
+
 struct in6_addr getIpAddress()
 {
     if (foundIp)

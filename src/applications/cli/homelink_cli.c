@@ -11,19 +11,8 @@ typedef struct HomeLinkConfig
 {
     char hostId[33];
     char serverAddress[65];
-    char serverControlPort[33];
-    char serverDataPort[33];
+    char serverPort[33];
 } HomeLinkConfig;
-
-bool stringEqual(const char *s1, const char *s2)
-{
-    if (strlen(s1) != strlen(s2))
-    {
-        return false;
-    }
-
-    return strcmp(s1, s2) == 0;
-}
 
 bool readConfig(HomeLinkConfig *config, const char *configFilePath)
 {
@@ -50,25 +39,18 @@ bool readConfig(HomeLinkConfig *config, const char *configFilePath)
 
         if (key != NULL && value != NULL)
         {
-            if (strncmp(key, "host_id", sizeof("host_id") - 1) == 0)
+            if (stringEqual(key, "host_id"))
             {
                 strncpy(config->hostId, value, sizeof(config->hostId));
             }
-            else if (strncmp(key, "server_address", sizeof("server_address") - 1) ==
-                     0)
+            else if (stringEqual(key, "server_address"))
             {
                 strncpy(config->serverAddress, value, sizeof(config->serverAddress));
             }
-            else if (strncmp(key, "server_control_port",
-                             sizeof("server_control_port") - 1) == 0)
+            else if (stringEqual(key, "server_port"))
             {
-                strncpy(config->serverControlPort, value,
-                        sizeof(config->serverControlPort));
-            }
-            else if (strncmp(key, "server_data_port",
-                             sizeof("server_data_port") - 1) == 0)
-            {
-                strncpy(config->serverDataPort, value, sizeof(config->serverDataPort));
+                strncpy(config->serverPort, value,
+                        sizeof(config->serverPort));
             }
         }
     }
@@ -94,19 +76,7 @@ bool editConfig(int argc, char **argv, const char *configFilePath)
             continue;
         }
 
-        const char *hostId = "--host-id";
-        const size_t hostIdLen = strlen(hostId);
-
-        const char *serverIpAddress = "--server-address";
-        const size_t serverIpAddressLen = strlen(serverIpAddress);
-
-        const char *serverControlPort = "--server-control-port";
-        const size_t serverControlPortLen = strlen(serverControlPort);
-
-        const char *serverDataPort = "--server-data-port";
-        const size_t serverDataPortLen = strlen(serverDataPort);
-
-        if (strlen(token) == hostIdLen && strncmp(token, hostId, hostIdLen) == 0)
+        if (stringEqual(token, "--host-id"))
         {
             char *field = strtok(NULL, "=");
             if (field == NULL || strlen(field) == 0)
@@ -116,9 +86,7 @@ bool editConfig(int argc, char **argv, const char *configFilePath)
             }
             strncpy(config.hostId, field, sizeof(config.hostId) - 1);
         }
-
-        else if (strlen(token) == serverIpAddressLen &&
-                 strncmp(token, serverIpAddress, serverIpAddressLen) == 0)
+        else if (stringEqual(token, "--server-address"))
         {
             char *field = strtok(NULL, "=");
             if (field == NULL || strlen(field) == 0)
@@ -129,9 +97,7 @@ bool editConfig(int argc, char **argv, const char *configFilePath)
 
             strncpy(config.serverAddress, field, sizeof(config.serverAddress));
         }
-
-        else if (strlen(token) == serverControlPortLen &&
-                 strncmp(token, serverControlPort, serverControlPortLen) == 0)
+        else if (stringEqual(token, "--server-port"))
         {
             char *field = strtok(NULL, "=");
             if (field == NULL || strlen(field) == 0)
@@ -140,21 +106,8 @@ bool editConfig(int argc, char **argv, const char *configFilePath)
                 return false;
             }
 
-            strncpy(config.serverControlPort, field,
-                    sizeof(config.serverControlPort));
-        }
-
-        else if (strlen(token) == serverDataPortLen &&
-                 strncmp(token, serverDataPort, serverDataPortLen) == 0)
-        {
-            char *field = strtok(NULL, "=");
-            if (field == NULL || strlen(field) == 0)
-            {
-                fprintf(stderr, "Field for %s cannot be empty\n", token);
-                return false;
-            }
-
-            strncpy(config.serverDataPort, field, sizeof(config.serverDataPort));
+            strncpy(config.serverPort, field,
+                    sizeof(config.serverPort));
         }
     }
 
@@ -162,8 +115,7 @@ bool editConfig(int argc, char **argv, const char *configFilePath)
 
     fprintf(file, "host_id %s\n", config.hostId);
     fprintf(file, "server_address %s\n", config.serverAddress);
-    fprintf(file, "server_control_port %s\n", config.serverControlPort);
-    fprintf(file, "server_data_port %s\n", config.serverDataPort);
+    fprintf(file, "server_port %s\n", config.serverPort);
 
     fclose(file);
 
@@ -287,8 +239,7 @@ int main(int argc, char **argv)
 
     snprintf(a0, 32, "--host-id=%s", config.hostId);
     snprintf(a1, 32, "--server-address=%s", config.serverAddress);
-    snprintf(a2, 32, "--server-control-port=%s", config.serverControlPort);
-    snprintf(a3, 32, "--server-data-port=%s", config.serverDataPort);
+    snprintf(a2, 32, "--server-port=%s", config.serverPort);
 
     char *argv2[4] = {a0, a1, a2, a3};
 

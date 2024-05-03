@@ -9,6 +9,8 @@ extern "C"
 #include <netinet/in.h>
 #include <stdbool.h>
 
+    bool stringEqual(const char *s1, const char *s2);
+
     struct in6_addr getIpAddress();
 
     int ipv4ToIpv6(const char *ipv4Str, char *ipv6Str);

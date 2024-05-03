@@ -15,13 +15,19 @@ extern "C"
 
     typedef struct HomeLinkClient HomeLinkClient;
 
+    // Returns pointer to the host key that is read
+    // from the host key file, the file is read once.
     const char *getHostKey();
 
+    // Sets fields within the HomeLinkClient struct using args.
     bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId,
                                     int argc, char **argv);
 
+    // Fetches the RSA public key and AES-256 key from the server,
+    // while sending the client's RSA public key.
     bool HomeLinkClient__fetchKeys(HomeLinkClient *client);
 
+    // Registers the host with the server using the
     RegisterStatus HomeLinkClient__registerHost(HomeLinkClient *client);
 
     RegisterStatus HomeLinkClient__registerService(HomeLinkClient *client, const char *serviceId, const char *password);
