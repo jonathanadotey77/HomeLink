@@ -13,14 +13,11 @@ class LoginSystem
 private:
     static const std::string LOGIN_FILE;
     static int validateHostCallback(void *data, int, char **argv, char **);
+
+private:
     sqlite3 *dbHandle;
 
-    LoginSystem() {}
-
-    // Deleted copy constructor and assignment operator.
-    LoginSystem(const LoginSystem &other) = delete;
-    LoginSystem &operator=(const LoginSystem &other) = delete;
-
+private:
     typedef enum HostValidationStatus
     {
         e_HostValidationFailed = 0,
@@ -33,6 +30,13 @@ private:
         HostValidationStatus status;
         const char *hostKey;
     } ValidateHostStruct;
+
+private:
+    LoginSystem() {}
+
+    // Deleted copy constructor and assignment operator.
+    LoginSystem(const LoginSystem &other) = delete;
+    LoginSystem &operator=(const LoginSystem &other) = delete;
 
     HostValidationStatus validateHostKey(const char *hostId, const char *hostKey);
 

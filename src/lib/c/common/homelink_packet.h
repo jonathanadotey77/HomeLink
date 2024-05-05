@@ -24,26 +24,29 @@ extern "C"
 
     typedef enum HomeLinkPacketType
     {
-        e_CLI = 255,
-        e_Ack = 0,
-        e_KeyRequest = 1,
-        e_KeyResponse = 2,
-        e_Handshake = 3,
-        e_Command = 4,
-        e_LoginRequest = 5,
-        e_LoginResponse = 6,
-        e_RegisterRequest = 7,
-        e_RegisterResponse = 8,
-        e_Logout = 9,
-        e_FileReadRequest = 10,
-        e_FileReadResponse = 11
+        e_Ack = 1,
+        e_KeyRequest = 2,
+        e_KeyResponse = 3,
+        e_Handshake = 4,
+        e_Command = 5,
+        e_LoginRequest = 6,
+        e_LoginResponse = 7,
+        e_RegisterRequest = 8,
+        e_RegisterResponse = 9,
+        e_Logout = 10,
+        e_AsyncNotification = 11
     } HomeLinkPacketType;
 
     typedef enum RegistrationType
     {
-        e_HostRegistration = 0,
-        e_ServiceRegistration = 1
+        e_HostRegistration = 1,
+        e_ServiceRegistration = 2
     } RegistrationType;
+
+    typedef enum AsyncEventType
+    {
+        e_FileEvent = 1
+    } AsyncEventType;
 
     // UDP
     typedef struct PingPacket
@@ -166,9 +169,19 @@ extern "C"
         uint32_t connectionId;
         uint8_t sessionKey[256];
     } LogoutPacket;
-    extern const int32_t LogoutPacket__SIZE;
+    extern const int32_t LogoutPacket_SIZE;
     void LogoutPacket_serialize(uint8_t *buffer, const LogoutPacket *packet);
     void LogoutPacket_deserialize(LogoutPacket *packet, const uint8_t *buffer);
+
+    typedef struct AsyncNotificationPacket
+    {
+        uint8_t packetType;
+        uint8_t eventType;
+        int32_t tag;
+    } AsyncNotificationPacket;
+    extern const int32_t AsyncNotificationPacket_SIZE;
+    void AsyncNotificationPacket_serialize(uint8_t *buffer, const AsyncNotificationPacket *packet);
+    void AsyncNotificationPacket_deserialize(AsyncNotificationPacket *packet, const uint8_t *buffer);
 
 #ifdef __cplusplus
 }

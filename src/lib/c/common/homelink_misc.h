@@ -33,6 +33,9 @@ extern "C"
     // Checks if a file exists on disk at the given file path.
     bool fileExists(const char *filePath);
 
+    // Gives a random port within the given range, inclusive.
+    uint16_t randomPort(uint16_t lowerBound, uint16_t upperBound);
+
 #ifdef __cplusplus
 }
 #endif

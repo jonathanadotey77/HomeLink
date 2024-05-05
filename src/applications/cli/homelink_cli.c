@@ -2,6 +2,7 @@
 #include <homelink_misc.h>
 #include <homelink_security.h>
 
+#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -228,7 +229,7 @@ int main(int argc, char **argv)
     HomeLinkConfig config;
     readConfig(&config, configFilePath);
 
-    HomeLinkClient *client = (HomeLinkClient *)calloc(1, HomeLinkClient__SIZE);
+    HomeLinkClient *client = (HomeLinkClient *)calloc(1, HomeLinkClient_SIZE);
 
     int argc2 = 4;
 
@@ -249,6 +250,8 @@ int main(int argc, char **argv)
         cleanSecurity();
         return 1;
     }
+
+    signal(SIGPIPE, SIG_IGN);
 
     if (!HomeLinkClient__fetchKeys(client))
     {

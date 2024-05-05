@@ -7,6 +7,8 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
+#include <poll.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,7 +19,7 @@ static const int RETRY_COUNT = 5;
 
 typedef struct HomeLinkClient
 {
-    char serverControlAddressStr[64];
+    char serverControlStr[64];
     struct sockaddr_in6 serverAddress;
     uint16_t serverPort;
     char serverPublicKey[512];
@@ -27,9 +29,12 @@ typedef struct HomeLinkClient
     char serviceId[33];
     uint32_t connectionId;
     char sessionKey[256];
+    volatile bool active;
+    int asyncFileSocket;
+    pthread_t asyncFileThreadId;
 } HomeLinkClient;
 
-const size_t HomeLinkClient__SIZE = sizeof(HomeLinkClient);
+const size_t HomeLinkClient_SIZE = sizeof(HomeLinkClient);
 
 const char *getHostKey()
 {
@@ -83,9 +88,126 @@ const char *getHostKey()
     return hostKey;
 }
 
-static void HomeLinkClient__sendCommand(int sd, HomeLinkClient *client, const char *command)
+typedef struct HomeLinkReadFileAsyncArgs
 {
+    const HomeLinkClient *client;
+    const char *directory;
+    HomeLinkAsyncReadFileCallback callback;
+    void *context;
+} HomeLinkReadFileAsyncArgs;
 
+static void *HomeLinkClient__readFileAsyncThread(void *a)
+{
+    HomeLinkReadFileAsyncArgs *args = (HomeLinkReadFileAsyncArgs *)a;
+    const HomeLinkClient *client = args->client;
+    const char *directory = args->directory;
+    HomeLinkAsyncReadFileCallback callback = args->callback;
+    void *context = args->context;
+    free(args);
+
+    uint8_t buffer[AsyncNotificationPacket_SIZE];
+    struct pollfd fds[1];
+    char *filePath = NULL;
+
+    while (client->active)
+    {
+        filePath = HomeLinkClient__readFile(client, directory);
+        if (filePath == NULL)
+        {
+            fprintf(stderr, "Error with readFile\n");
+            return NULL;
+        }
+
+        if (filePath[0] == '\0')
+        {
+            free(filePath);
+            break;
+        }
+
+        callback(filePath, context);
+        free(filePath);
+        filePath = NULL;
+    }
+
+    while (client->active)
+    {
+        buffer[0] = 0;
+
+        fds[0].events = POLLIN;
+        fds[0].fd = client->asyncFileSocket;
+        fds[0].revents = 0;
+
+        int rc = poll(fds, 1, 3000);
+        if (rc < 0)
+        {
+            fprintf(stderr, "poll() failed [%d]\n", errno);
+            break;
+        }
+        else if (rc == 0)
+        {
+            continue;
+        }
+
+        bool status = recvBufferTcp(client->asyncFileSocket, buffer, sizeof(buffer));
+        if (!status)
+        {
+            fprintf(stderr, "recvBufferTcp() failed\n");
+            break;
+        }
+
+        AsyncNotificationPacket asyncNotificationPacket;
+        AsyncNotificationPacket_deserialize(&asyncNotificationPacket, buffer);
+
+        filePath = NULL;
+        AsyncEventType eventType = asyncNotificationPacket.eventType;
+        int32_t expectedTag = asyncNotificationPacket.tag;
+
+        if (eventType == e_FileEvent)
+        {
+            while (client->active)
+            {
+                filePath = HomeLinkClient__readFile(client, directory);
+                if (filePath != NULL)
+                {
+                    if (filePath[0] != '\0')
+                    {
+                        if (callback != NULL)
+                        {
+                            callback(filePath, context);
+                        }
+
+                        int32_t tag = atoll(filePath + 256);
+                        if (tag == expectedTag)
+                        {
+                            printf("Tag: %d\n", (int)tag);
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        free(filePath);
+                        break;
+                    }
+                }
+                else
+                {
+                    fprintf(stderr, "Error with async readFile\n");
+                    break;
+                }
+
+                if (filePath != NULL)
+                {
+                    free(filePath);
+                }
+            }
+        }
+    }
+
+    return NULL;
+}
+
+static void HomeLinkClient__sendCommand(int sd, const HomeLinkClient *client, const char *command)
+{
     CommandPacket commandPacket;
     memset(&commandPacket, 0, sizeof(commandPacket));
 
@@ -118,6 +240,8 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
     {
         return false;
     }
+
+    client->active = false;
 
     memset(client, 0, sizeof(HomeLinkClient));
     client->serverPort = 0;
@@ -152,7 +276,7 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
                 return false;
             }
 
-            strncpy(client->serverControlAddressStr, field, sizeof(client->serverControlAddressStr));
+            strncpy(client->serverControlStr, field, sizeof(client->serverControlStr));
         }
         else if (stringEqual(token, "--server-port"))
         {
@@ -188,7 +312,7 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
         fprintf(stderr, "--host-id is a required argument for client intialization\n");
         return false;
     }
-    if (client->serverControlAddressStr[0] == 0)
+    if (client->serverControlStr[0] == 0)
     {
         fprintf(stderr, "--server-address is a required argument for client intialization\n");
         return false;
@@ -199,7 +323,7 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
         return false;
     }
 
-    struct in6_addr serverIpAddress = parseIpAddress(client->serverControlAddressStr);
+    struct in6_addr serverIpAddress = parseIpAddress(client->serverControlStr);
     client->serverAddress.sin6_family = AF_INET6;
     memcpy(&client->serverAddress.sin6_addr, &serverIpAddress, sizeof(client->serverAddress.sin6_addr));
     client->serverAddress.sin6_port = htons(client->serverPort);
@@ -209,6 +333,15 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
     strncpy(client->serviceId, serviceId, sizeof(client->serviceId));
 
     client->connectionId = 0;
+
+    client->asyncFileSocket = socket(AF_INET6, SOCK_STREAM, 0);
+    if (client->asyncFileSocket < 0)
+    {
+        fprintf(stderr, "socket() failed [%d]\n", errno);
+        return false;
+    }
+
+    client->asyncFileThreadId = 0;
 
     return true;
 }
@@ -302,7 +435,7 @@ bool HomeLinkClient__fetchKeys(HomeLinkClient *client)
     return false;
 }
 
-RegisterStatus HomeLinkClient__registerHost(HomeLinkClient *client)
+RegisterStatus HomeLinkClient__registerHost(const HomeLinkClient *client)
 {
     int sd = socket(AF_INET6, SOCK_STREAM, 0);
     if (sd < 0)
@@ -390,7 +523,7 @@ RegisterStatus HomeLinkClient__registerHost(HomeLinkClient *client)
     return registerResponsePacket.status;
 }
 
-RegisterStatus HomeLinkClient__registerService(HomeLinkClient *client, const char *serviceId, const char *password)
+RegisterStatus HomeLinkClient__registerService(const HomeLinkClient *client, const char *serviceId, const char *password)
 {
     int sd = socket(AF_INET6, SOCK_STREAM, 0);
     if (sd < 0)
@@ -593,6 +726,7 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
 
     memset(passwordData, 0, sizeof(passwordData));
     close(sd);
+    client->active = true;
     return true;
 }
 
@@ -635,7 +769,7 @@ void HomeLinkClient__logout(HomeLinkClient *client)
         return;
     }
 
-    status = sendBufferTcp(sd, buffer + 1, LogoutPacket__SIZE - 1);
+    status = sendBufferTcp(sd, buffer + 1, LogoutPacket_SIZE - 1);
     if (!status)
     {
         fprintf(stderr, "sendBufferTcp() failed\n");
@@ -644,9 +778,49 @@ void HomeLinkClient__logout(HomeLinkClient *client)
     }
 
     close(sd);
+    client->active = false;
+    memset(client->sessionKey, 0, sizeof(client->sessionKey));
 }
 
-char *HomeLinkClient__readFile(HomeLinkClient *client, const char *directory)
+bool HomeLinkClient__readFileAsync(HomeLinkClient *client, const char *directory, HomeLinkAsyncReadFileCallback callback, void *context)
+{
+    if (client->asyncFileThreadId != 0)
+    {
+        return false;
+    }
+    if (connect(client->asyncFileSocket, (const struct sockaddr *)(&client->serverAddress), (socklen_t)(sizeof(client->serverAddress))) < 0)
+    {
+        fprintf(stderr, "connect() failed [%d]\n", errno);
+    }
+
+    HomeLinkClient__sendCommand(client->asyncFileSocket, client, "LISTEN FILES");
+
+    HomeLinkReadFileAsyncArgs *args = (HomeLinkReadFileAsyncArgs *)calloc(1, sizeof(HomeLinkReadFileAsyncArgs));
+    args->client = client;
+    args->directory = directory;
+    args->callback = callback;
+    args->context = context;
+
+    pthread_create(&client->asyncFileThreadId, NULL, HomeLinkClient__readFileAsyncThread, (void *)args);
+
+    return true;
+}
+
+void HomeLinkClient__waitAsync(HomeLinkClient *client)
+{
+    if (client->asyncFileThreadId != 0)
+    {
+        pthread_join(client->asyncFileThreadId, NULL);
+        client->asyncFileThreadId = 0;
+    }
+}
+
+void HomeLinkClient__stopAsync(HomeLinkClient *client)
+{
+    client->active = false;
+}
+
+char *HomeLinkClient__readFile(const HomeLinkClient *client, const char *directory)
 {
     int sd = socket(AF_INET6, SOCK_STREAM, 0);
     if (sd < 0)
@@ -657,7 +831,7 @@ char *HomeLinkClient__readFile(HomeLinkClient *client, const char *directory)
 
     if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
     {
-        fprintf(stderr, "connect() failed [%d]\n", errno);
+        fprintf(stderr, "connect() failed here [%d]\n", errno);
         close(sd);
         return NULL;
     }
@@ -692,7 +866,7 @@ char *HomeLinkClient__readFile(HomeLinkClient *client, const char *directory)
     return filePath;
 }
 
-bool HomeLinkClient__writeFile(HomeLinkClient *client, const char *destinationHostId, const char *destinationServiceId, const char *localPath, const char *remotePath)
+bool HomeLinkClient__writeFile(const HomeLinkClient *client, const char *destinationHostId, const char *destinationServiceId, const char *localPath, const char *remotePath)
 {
     int sd = socket(AF_INET6, SOCK_STREAM, 0);
     if (sd < 0)
@@ -725,7 +899,7 @@ bool HomeLinkClient__writeFile(HomeLinkClient *client, const char *destinationHo
 
     HomeLinkClient__sendCommand(sd, client, command);
 
-    bool status = sendFile(sd, localPath, remotePath, client->aesKey);
+    bool status = sendFile(sd, localPath, remotePath, client->aesKey, 0);
 
     memset(&command, 0, sizeof(command));
 
@@ -736,5 +910,10 @@ bool HomeLinkClient__writeFile(HomeLinkClient *client, const char *destinationHo
 
 void HomeLinkClient__destruct(HomeLinkClient *client)
 {
+    close(client->asyncFileSocket);
+    if (client->asyncFileThreadId != 0)
+    {
+        pthread_join(client->asyncFileThreadId, NULL);
+    }
     memset(client->sessionKey, 0, sizeof(client->sessionKey));
 }

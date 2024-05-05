@@ -252,7 +252,7 @@ void RegisterResponsePacket_deserialize(RegisterResponsePacket *packet, const ui
     packet->status = *status;
 }
 
-const int32_t LogoutPacket__SIZE = sizeof(((LogoutPacket){0}).packetType) + sizeof(((LogoutPacket){0}).connectionId) + sizeof(((LogoutPacket){0}).sessionKey);
+const int32_t LogoutPacket_SIZE = sizeof(((LogoutPacket){0}).packetType) + sizeof(((LogoutPacket){0}).connectionId) + sizeof(((LogoutPacket){0}).sessionKey);
 
 void LogoutPacket_serialize(uint8_t *buffer, const LogoutPacket *packet)
 {
@@ -274,4 +274,28 @@ void LogoutPacket_deserialize(LogoutPacket *packet, const uint8_t *buffer)
     packet->packetType = *packetType;
     packet->connectionId = ntohl(*connectionId);
     memcpy(packet->sessionKey, sessionKey, sizeof(packet->sessionKey));
+}
+
+const int32_t AsyncNotificationPacket_SIZE = sizeof(((AsyncNotificationPacket){0}).packetType) + sizeof(((AsyncNotificationPacket){0}).eventType) + sizeof(((AsyncNotificationPacket){0}).tag);
+
+void AsyncNotificationPacket_serialize(uint8_t *buffer, const AsyncNotificationPacket *packet)
+{
+    uint8_t *packetType = (uint8_t *)(buffer);
+    uint8_t *eventType = (uint8_t *)(buffer + sizeof(packet->packetType));
+    int32_t *tag = (int32_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->eventType));
+
+    *packetType = packet->packetType;
+    *eventType = packet->eventType;
+    *tag = htonl(packet->tag);
+}
+
+void AsyncNotificationPacket_deserialize(AsyncNotificationPacket *packet, const uint8_t *buffer)
+{
+    const uint8_t *packetType = (const uint8_t *)(buffer);
+    const uint8_t *eventType = (const uint8_t *)(buffer + sizeof(packet->packetType));
+    const int32_t *tag = (const int32_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->eventType));
+
+    packet->packetType = *packetType;
+    packet->eventType = *eventType;
+    packet->tag = ntohl(*tag);
 }

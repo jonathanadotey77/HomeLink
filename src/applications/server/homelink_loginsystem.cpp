@@ -58,19 +58,14 @@ static int loginCallback(void *data, int, char **argv, char **)
     return 0;
 }
 
-const std::string LoginSystem::LOGIN_FILE =
-    std::string(getenv("HOMELINK_ROOT")) + "/login/login.db";
+const std::string LoginSystem::LOGIN_FILE = std::string(getenv("HOMELINK_ROOT")) + "/login/login.db";
 
-static std::mutex instanceMutex;
 static std::mutex loginSystemLock;
 static volatile bool active = false;
 
 LoginSystem *LoginSystem::getInstance()
 {
-    instanceMutex.lock();
     static LoginSystem instance;
-    instanceMutex.unlock();
-
     return &instance;
 }
 bool LoginSystem::start()

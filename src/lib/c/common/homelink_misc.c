@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 static struct in6_addr localIpAddress;
@@ -180,4 +181,19 @@ bool fileExists(const char *filePath)
 {
     struct stat buffer;
     return (stat(filePath, &buffer) == 0);
+}
+
+uint16_t randomPort(uint16_t lowerBound, uint16_t upperBound)
+{
+    static bool randInitialized = false;
+
+    if (!randInitialized)
+    {
+        srand(time(NULL));
+        randInitialized = true;
+    }
+
+    uint32_t range = (uint32_t)upperBound - (uint32_t)lowerBound + 1;
+    uint32_t idx = (uint32_t)rand() % range;
+    return lowerBound + (uint16_t)idx;
 }

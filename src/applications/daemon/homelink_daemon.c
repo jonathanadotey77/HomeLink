@@ -20,6 +20,7 @@ void shutdownHandler(int sig)
     {
     }
     stopped = true;
+    HomeLinkClient__stopAsync(client);
 }
 
 void shutdownDaemon()
@@ -29,30 +30,24 @@ void shutdownDaemon()
     free(client);
 }
 
+void callback(const char *filename, void *context)
+{
+    if (context)
+    {
+    }
+    printf("Received file: %s\n", filename);
+}
+
 void run()
 {
-    while (!stopped)
+
+    bool status = HomeLinkClient__readFileAsync(client, daemonDirectory, callback, NULL);
+    if (!status)
     {
-        char *filename = HomeLinkClient__readFile(client, daemonDirectory);
-        if (filename == NULL)
-        {
-            printf("File read error\n");
-            sleep(5);
-            continue;
-        }
-
-        if (strlen(filename) > 0)
-        {
-            printf("Received file: %s\n", filename);
-        }
-        else
-        {
-            printf("File queue is empty\n");
-            sleep(5);
-        }
-
-        free(filename);
+        printf("Failed\n");
     }
+
+    HomeLinkClient__waitAsync(client);
 }
 
 int main(int argc, char **argv)
@@ -62,10 +57,11 @@ int main(int argc, char **argv)
         return false;
     }
 
-    client = (HomeLinkClient *)calloc(1, HomeLinkClient__SIZE);
+    client = (HomeLinkClient *)calloc(1, HomeLinkClient_SIZE);
 
     signal(SIGINT, shutdownHandler);
     signal(SIGTSTP, shutdownHandler);
+    signal(SIGPIPE, SIG_IGN);
 
     char *dir = getenv("HOMELINK_DAEMON_FILES");
     if (dir == NULL)

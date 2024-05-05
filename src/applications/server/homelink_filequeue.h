@@ -26,7 +26,7 @@ public:
 
     // Adds a file to the service's queue.
     bool pushFile(const std::string &hostId, const std::string &serviceId,
-                  const std::string &path);
+                  const std::string &path, int *tag);
 };
 
 // Returns the current timestamp, in the format "%Y-%m-%d__%Hh%Mm%Ss"

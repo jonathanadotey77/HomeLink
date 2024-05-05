@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,17 +49,36 @@ static void makeParentDirectory(const char *dir)
 bool sendBufferTcp(int sd, const uint8_t *buffer, int n)
 {
     int bytesSent = 0;
+    struct pollfd fds[1];
 
     for (int i = 0; i < 10 && bytesSent < n; ++i)
     {
-        int rc = send(sd, buffer + bytesSent, n - bytesSent, 0);
+        fds[0].events = POLLOUT;
+        fds[0].fd = sd;
+        fds[0].revents = 0;
+
+        int rc = poll(fds, 1, 3000);
         if (rc < 0)
         {
-            fprintf(stderr, "send() failed [%d]\n", errno);
+            fprintf(stderr, "poll() failed [%d]\n", errno);
             return false;
         }
+        else if (rc == 0)
+        {
+            continue;
+        }
 
-        bytesSent += rc;
+        if (fds[0].revents & POLLOUT)
+        {
+            rc = send(sd, buffer + bytesSent, n - bytesSent, 0);
+            if (rc < 0)
+            {
+                fprintf(stderr, "send() failed [%d]\n", errno);
+                return false;
+            }
+
+            bytesSent += rc;
+        }
     }
 
     return bytesSent == n;
@@ -68,9 +88,26 @@ bool recvBufferTcp(int sd, uint8_t *buffer, int n)
 {
     int bytesReceived = 0;
 
+    struct pollfd fds[1];
+
     for (int i = 0; i < 10 && bytesReceived < n; ++i)
     {
-        int rc = recv(sd, buffer + bytesReceived, n - bytesReceived, 0);
+        fds[0].events = POLLIN;
+        fds[0].fd = sd;
+        fds[0].revents = 0;
+
+        int rc = poll(fds, 1, 3000);
+        if (rc < 0)
+        {
+            fprintf(stderr, "poll() failed [%d]\n", errno);
+            return false;
+        }
+        else if (rc == 0)
+        {
+            continue;
+        }
+
+        rc = recv(sd, buffer + bytesReceived, n - bytesReceived, 0);
         if (rc < 0)
         {
             fprintf(stderr, "recv() failed [%d]\n", errno);
@@ -83,7 +120,7 @@ bool recvBufferTcp(int sd, uint8_t *buffer, int n)
     return bytesReceived == n;
 }
 
-bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t *aesKey)
+bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t *aesKey, int32_t fileTag)
 {
     uint8_t sendBuffer[HOMELINK_FILE_BLOCK_SIZE + 16] = {0};
     uint8_t recvBuffer[17] = {0};
@@ -99,7 +136,7 @@ bool sendFile(int sd, const char *filePath, const char *filename, const uint8_t 
 
     const uint64_t fileSize = (uint64_t)st.st_size;
 
-    snprintf(fileInfo, 128, "%s %llu", filename, (unsigned long long int)fileSize);
+    snprintf(fileInfo, 128, "%s %llu %llu", filename, (unsigned long long int)fileSize, (unsigned long long int)fileTag);
 
     // Send file info
     int len = sizeof(fileInfo) - 1;
@@ -239,21 +276,33 @@ char *recvFile(int sd, const char *prefix, const uint8_t *aesKey, FileRecvMode m
     }
 
     uint64_t fileSize = 0;
-    status = false;
+    uint64_t fileTag = 0;
+    int spaces = 0;
     for (int i = 0; i < (int)sizeof(fileInfo) - 1 && fileInfo[i] != '\0'; ++i)
     {
         if (fileInfo[i] == ' ')
         {
+            for (int j = 0; j < (int)sizeof(fileInfo) - 1 && fileInfo[j] != '\0'; ++j)
+            {
+                if (fileInfo[j] == ' ')
+                {
+                    fileInfo[j] = '\0';
+                    fileTag = (uint64_t)atoll(fileInfo + j + 1);
+                    ++spaces;
+                    break;
+                }
+            }
             fileInfo[i] = '\0';
             fileSize = (uint64_t)atoll(fileInfo + i + 1);
-            status = true;
+            ++spaces;
             break;
         }
     }
 
-    if (!status || strlen(filename) == 0)
+    if (spaces != 2 || strlen(filename) == 0)
     {
         fprintf(stderr, "Invalid file info\n");
+        printf("%d spaces\n", spaces);
         return NULL;
     }
 
@@ -268,9 +317,9 @@ char *recvFile(int sd, const char *prefix, const uint8_t *aesKey, FileRecvMode m
         return NULL;
     }
 
-    char *filePath = (char *)calloc(256, 1);
-    snprintf(filePath, 255, "%s%s", prefix, filename);
-
+    char *filePath = (char *)calloc(300, 1);
+    snprintf(filePath, 252, "%s%s", prefix, filename);
+    snprintf(filePath + 256, 25, "%llu", (unsigned long long int)fileTag);
     makeParentDirectory(filePath);
 
     FILE *fp = fopen(filePath, "wb");

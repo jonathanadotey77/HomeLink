@@ -11,9 +11,11 @@ extern "C"
 #include <arpa/inet.h>
 #include <stdbool.h>
 
-    extern const size_t HomeLinkClient__SIZE;
+    extern const size_t HomeLinkClient_SIZE;
 
     typedef struct HomeLinkClient HomeLinkClient;
+
+    typedef void (*HomeLinkAsyncReadFileCallback)(const char *, void *);
 
     // Returns pointer to the host key that is read
     // from the host key file, the file is read once.
@@ -31,11 +33,11 @@ extern "C"
 
     // Registers the host with the server, may create host file if it
     // does not exist.
-    RegisterStatus HomeLinkClient__registerHost(HomeLinkClient *client);
+    RegisterStatus HomeLinkClient__registerHost(const HomeLinkClient *client);
 
     // Registers the service with the server, requires host key file
     // to already exist.
-    RegisterStatus HomeLinkClient__registerService(HomeLinkClient *client, const char *serviceId, const char *password);
+    RegisterStatus HomeLinkClient__registerService(const HomeLinkClient *client, const char *serviceId, const char *password);
 
     // Tries login, initializes session key on success
     bool HomeLinkClient__login(HomeLinkClient *client, const char *password);
@@ -43,13 +45,19 @@ extern "C"
     // Uses session key to logout
     void HomeLinkClient__logout(HomeLinkClient *client);
 
+    bool HomeLinkClient__readFileAsync(HomeLinkClient *client, const char *directory, HomeLinkAsyncReadFileCallback callback, void *context);
+
+    void HomeLinkClient__waitAsync(HomeLinkClient *client);
+
+    void HomeLinkClient__stopAsync(HomeLinkClient *client);
+
     // Checks for file in the service's queue, returns the path to the
     // stored file if a file is received, and empty string if the queue is
     // empty, and NULL on error.
-    char *HomeLinkClient__readFile(HomeLinkClient *client, const char *directory);
+    char *HomeLinkClient__readFile(const HomeLinkClient *client, const char *directory);
 
     // Adds a file to the destination's queue
-    bool HomeLinkClient__writeFile(HomeLinkClient *client,
+    bool HomeLinkClient__writeFile(const HomeLinkClient *client,
                                    const char *destinationHostId,
                                    const char *destinationServiceId,
                                    const char *localPath, const char *remotePath);

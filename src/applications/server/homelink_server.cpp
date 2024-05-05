@@ -1,3 +1,4 @@
+#include <homelink_asyncthreadpool.h>
 #include <homelink_filequeue.h>
 #include <homelink_keyset.h>
 #include <homelink_loginsystem.h>
@@ -41,6 +42,7 @@ volatile bool isStopped = false;
 std::unordered_map<uint32_t, KeySet> clientKeys;
 std::mutex clientKeysLock;
 
+AsyncThreadPool *asyncThreadPool = NULL;
 FileQueue *fileQueue = NULL;
 LoginSystem *loginSystem = NULL;
 
@@ -434,6 +436,7 @@ void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
 
         memset(&loginResponsePacket, 0, sizeof(loginResponsePacket));
     }
+
     clientKeysLock.unlock();
 }
 
@@ -447,7 +450,90 @@ void handleLogout(const LogoutPacket *logoutPacket)
     if (validateClient(logoutPacket->connectionId, logoutPacket->sessionKey,
                        sizeof(logoutPacket->sessionKey)))
     {
+        clientKeysLock.lock();
+        if (verbose)
+        {
+            const std::string &hostId = clientKeys[logoutPacket->connectionId].getHostId();
+            const std::string &serviceId = clientKeys[logoutPacket->connectionId].getServiceId();
+            printf("Logout success {%s | %s}\n", hostId.c_str(), serviceId.c_str());
+        }
         clientKeys.erase(logoutPacket->connectionId);
+        clientKeysLock.unlock();
+    }
+}
+
+void handleReadFileCommand(int sd, const std::string &hostId, const std::string &serviceId, const uint8_t *aesKey)
+{
+    std::string tempFilePath = fileQueue->nextFile(hostId, serviceId);
+    if (tempFilePath.empty())
+    {
+        uint8_t buffer[1] = {0};
+        if (!sendBufferTcp(sd, buffer, 1))
+        {
+            fprintf(stderr, "Could not send initial response for READ_FILE\n");
+        }
+        return;
+    }
+    else
+    {
+        uint8_t buffer[1] = {1};
+        if (!sendBufferTcp(sd, buffer, 1))
+        {
+            fprintf(stderr, "Could not send initial response for READ_FILE\n");
+            return;
+        }
+    }
+    std::string tempFilename = splitString(tempFilePath, '/').back();
+    bool status = false;
+    uint32_t i = 0;
+    int32_t tag = 0;
+    int start = 0;
+    for (; i < tempFilename.size(); ++i)
+    {
+        if (tempFilename[i] == '|')
+        {
+            start = i + 1;
+
+            continue;
+        }
+
+        if (tempFilename[i] == '.')
+        {
+            tempFilename[i] = '\0';
+            tag = atoll(tempFilename.c_str() + start);
+            ++i;
+            status = true;
+            break;
+        }
+    }
+
+    if (!status)
+    {
+        return;
+    }
+
+    status = sendFile(sd, tempFilePath.c_str(), tempFilename.c_str() + i, aesKey, tag);
+
+    if (status)
+    {
+        if (verbose)
+        {
+            printf("File read succeeded\n");
+        }
+
+        if (verbose)
+        {
+            printf("Clearing %s from file queue {%s | %s}\n",
+                   tempFilename.c_str(), hostId.c_str(), serviceId.c_str());
+        }
+        fileQueue->pullFile(tempFilePath);
+    }
+    else
+    {
+        if (verbose)
+        {
+            printf("Failed to send file\n");
+        }
     }
 }
 
@@ -480,6 +566,7 @@ void *clientThread(void *a)
         close(sd);
         return NULL;
     }
+
     HomeLinkPacketType packetType = static_cast<HomeLinkPacketType>(buffer[0]);
 
     const bool isCommandPacket = packetType == e_Command;
@@ -537,7 +624,7 @@ void *clientThread(void *a)
     }
     else if (packetType == e_Logout)
     {
-        status = recvBufferTcp(sd, buffer + 1, LogoutPacket__SIZE - 1);
+        status = recvBufferTcp(sd, buffer + 1, LogoutPacket_SIZE - 1);
         if (!status)
         {
             fprintf(stderr, "recvBufferTcp() failed\n");
@@ -621,67 +708,7 @@ void *clientThread(void *a)
 
         if (command == "READ_FILE")
         {
-            std::string tempFilePath = fileQueue->nextFile(hostId, serviceId);
-            if (tempFilePath.empty())
-            {
-                uint8_t buffer[1] = {0};
-                if (!sendBufferTcp(sd, buffer, 1))
-                {
-                    fprintf(stderr, "Could not send initial response for READ_FILE\n");
-                }
-                break;
-            }
-            else
-            {
-                uint8_t buffer[1] = {1};
-                if (!sendBufferTcp(sd, buffer, 1))
-                {
-                    fprintf(stderr, "Could not send initial response for READ_FILE\n");
-                    break;
-                }
-            }
-            std::string tempFilename = splitString(tempFilePath, '/').back();
-            bool status = false;
-            uint32_t i = 0;
-            for (; i < tempFilename.size(); ++i)
-            {
-                if (tempFilename[i] == '.')
-                {
-                    ++i;
-                    status = true;
-                    break;
-                }
-            }
-
-            if (!status)
-            {
-                break;
-            }
-
-            status =
-                sendFile(sd, tempFilePath.c_str(), tempFilename.c_str() + i, aesKey);
-
-            if (status)
-            {
-                if (verbose)
-                {
-                    printf("File read succeeded\n");
-                }
-
-                if (verbose)
-                {
-                    printf("Clearing %s from file queue {%s | %s}\n",
-                           tempFilename.c_str(), hostId.c_str(), serviceId.c_str());
-                }
-                fileQueue->pullFile(tempFilePath);
-            }
-            else
-            {
-                if (verbose)
-                {
-                    printf("Failed to send file\n");
-                }
-            }
+            handleReadFileCommand(sd, hostId, serviceId, aesKey);
         }
         else if (command == "WRITE_FILE")
         {
@@ -747,9 +774,10 @@ void *clientThread(void *a)
                 {
                     printf("File '%s' received successfully\n", filename);
                 }
-
+                int32_t tag = 0;
                 fileQueue->pushFile(destinationHostId, destinationServiceId,
-                                    tempFilePath);
+                                    tempFilePath, &tag);
+                asyncThreadPool->notifyService(destinationHostId, destinationServiceId, e_FileEvent, tag);
                 delete[] filename;
             }
             else
@@ -758,6 +786,20 @@ void *clientThread(void *a)
                 {
                     printf("Failed to received file\n");
                 }
+            }
+        }
+        else if (command == "LISTEN")
+        {
+            if (tokens.size() != 2)
+            {
+                break;
+            }
+            const std::string &eventType = tokens[1];
+
+            if (eventType == "FILES")
+            {
+                asyncThreadPool->addService(hostId, serviceId, e_FileEvent, sd, aesKey);
+                return NULL;
             }
         }
 
@@ -837,9 +879,17 @@ bool start()
 {
     loginSystem = LoginSystem::getInstance();
     fileQueue = FileQueue::getInstance();
+    asyncThreadPool = AsyncThreadPool::getInstance();
     if (!loginSystem->start())
     {
         fprintf(stderr, "Failed to start login system\n");
+        return false;
+    }
+
+    if (!asyncThreadPool->start())
+    {
+        fprintf(stderr, "Failed to start async thread pool\n");
+        loginSystem->stop();
         return false;
     }
 
@@ -853,6 +903,8 @@ bool start()
     {
         fprintf(stderr, "socket() failed [%d]\n", errno);
         cleanSecurity();
+        loginSystem->stop();
+        asyncThreadPool->stop();
         return false;
     }
 
@@ -876,11 +928,16 @@ bool start()
     {
         fprintf(stderr, "bind()  failed [%d]\n", errno);
         cleanSecurity();
+        loginSystem->stop();
+        asyncThreadPool->stop();
         return false;
     }
 
-    signal(SIGTSTP, terminationHandler);
     signal(SIGINT, terminationHandler);
+    signal(SIGTSTP, terminationHandler);
+
+    signal(SIGPIPE, SIG_IGN);
+
     pthread_create(&dataThreadId, NULL, dataThread, NULL);
 
     return true;

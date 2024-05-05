@@ -58,9 +58,6 @@ extern "C"
     char *saltedHash(const char *password, size_t passwordLen, const char *salt,
                      size_t saltLen);
 
-    // Gives a random port within the given range, inclusive.
-    uint16_t randomPort(uint16_t lowerBound, uint16_t upperBound);
-
 #ifdef __cplusplus
 }
 #endif

@@ -28,8 +28,6 @@ bool initializeSecurity()
         return true;
     }
 
-    srand(time(NULL));
-
     OpenSSL_add_all_algorithms();
     OpenSSL_add_all_ciphers();
     ERR_load_crypto_strings();
@@ -385,11 +383,4 @@ char *saltedHash(const char *password, size_t passwordLen, const char *salt, siz
     free(saltedPassword);
 
     return out;
-}
-
-uint16_t randomPort(uint16_t lowerBound, uint16_t upperBound)
-{
-    uint32_t range = (uint32_t)upperBound - (uint32_t)lowerBound + 1;
-    uint32_t idx = (uint32_t)rand() % range;
-    return lowerBound + (uint16_t)idx;
 }
