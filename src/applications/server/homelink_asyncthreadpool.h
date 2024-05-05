@@ -9,17 +9,22 @@
 #include <pthread.h>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 
 // SINGLETON
 class AsyncThreadPool
 {
-public:
+private:
+    typedef struct ClientInfo
+    {
+        uint16_t port;
+        pthread_t threadId;
+    } ClientInfo;
+
 private:
     int notoficationSocket;
     struct sockaddr_in notificationAddress;
     uint16_t notificationPort;
-    std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_map<AsyncEventType, uint16_t>>> portMap;
+    std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_map<AsyncEventType, ClientInfo>>> clientInfoMap;
 
 private:
     static void *clientThread(void *a);

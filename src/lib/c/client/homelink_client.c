@@ -882,6 +882,7 @@ bool HomeLinkClient__writeFile(const HomeLinkClient *client, const char *destina
     int rc = stat(localPath, &st);
     if (rc < 0)
     {
+        fprintf(stderr, "stat() failed, file may not exist\n");
         close(sd);
         return false;
     }

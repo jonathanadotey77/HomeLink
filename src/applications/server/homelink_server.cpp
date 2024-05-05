@@ -456,6 +456,8 @@ void handleLogout(const LogoutPacket *logoutPacket)
             const std::string &hostId = clientKeys[logoutPacket->connectionId].getHostId();
             const std::string &serviceId = clientKeys[logoutPacket->connectionId].getServiceId();
             printf("Logout success {%s | %s}\n", hostId.c_str(), serviceId.c_str());
+
+            asyncThreadPool->removeService(hostId, serviceId, e_AnyEvent);
         }
         clientKeys.erase(logoutPacket->connectionId);
         clientKeysLock.unlock();

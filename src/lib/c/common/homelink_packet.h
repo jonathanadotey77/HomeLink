@@ -45,7 +45,8 @@ extern "C"
 
     typedef enum AsyncEventType
     {
-        e_FileEvent = 1
+        e_FileEvent = 1,
+        e_AnyEvent = 255
     } AsyncEventType;
 
     // UDP

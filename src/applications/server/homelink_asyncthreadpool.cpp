@@ -11,8 +11,11 @@
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <unordered_set>
 
 static volatile bool stopped = true;
+std::unordered_set<pthread_t> activeThreadIds;
+std::mutex activeThreadIdsLock;
 
 static in_addr_t LOCALHOST = inet_addr("127.0.0.1");
 
@@ -27,8 +30,29 @@ typedef struct AsyncClientThreadArgs
     const uint8_t *aesKey;
 } AsyncClientThreadArgs;
 
+static bool isActiveThread(pthread_t threadId)
+{
+    bool active = false;
+    activeThreadIdsLock.lock();
+
+    active = activeThreadIds.find(threadId) != activeThreadIds.end();
+
+    activeThreadIdsLock.unlock();
+
+    if (active)
+    {
+        printf("found %llu\n", (unsigned long long)threadId);
+    }
+
+    return active;
+}
+
 void *AsyncThreadPool::clientThread(void *a)
 {
+    activeThreadIdsLock.lock();
+    const pthread_t threadId = pthread_self();
+    activeThreadIds.insert(threadId);
+    activeThreadIdsLock.unlock();
     AsyncClientThreadArgs *args = reinterpret_cast<AsyncClientThreadArgs *>(a);
 
     const int localSocket = args->localSocket;
@@ -47,7 +71,7 @@ void *AsyncThreadPool::clientThread(void *a)
     struct sockaddr_in sourceAddress;
     socklen_t sourceAddressLen = sizeof(sourceAddress);
 
-    while (!stopped)
+    while (!stopped && isActiveThread(threadId))
     {
         memset(buffer, 0, sizeof(buffer));
         fds[0].fd = localSocket;
@@ -105,7 +129,10 @@ void *AsyncThreadPool::clientThread(void *a)
     close(localSocket);
     close(clientSocket);
     delete[] aesKey;
-    asyncThreadPool->removeService(hostId, serviceId, eventType);
+    if (isActiveThread(threadId))
+    {
+        asyncThreadPool->removeService(hostId, serviceId, eventType);
+    }
 
     return NULL;
 }
@@ -153,7 +180,7 @@ void AsyncThreadPool::stop()
 
 bool AsyncThreadPool::findService(const std::string &hostId, const std::string &serviceId, AsyncEventType eventType)
 {
-    return this->portMap.find(hostId) != this->portMap.end() && this->portMap[hostId].find(serviceId) != this->portMap[hostId].end() && this->portMap[hostId][serviceId].find(eventType) != this->portMap[hostId][serviceId].end();
+    return this->clientInfoMap.find(hostId) != this->clientInfoMap.end() && this->clientInfoMap[hostId].find(serviceId) != this->clientInfoMap[hostId].end() && (eventType == e_AnyEvent || this->clientInfoMap[hostId][serviceId].find(eventType) != this->clientInfoMap[hostId][serviceId].end());
 }
 
 bool AsyncThreadPool::addService(const std::string &hostId, const std::string &serviceId, AsyncEventType eventType, int clientSocket, const uint8_t *aesKey)
@@ -182,7 +209,6 @@ bool AsyncThreadPool::addService(const std::string &hostId, const std::string &s
         }
         else
         {
-            this->portMap[hostId][serviceId][eventType] = port;
             status = true;
 
             pthread_t threadId;
@@ -197,6 +223,10 @@ bool AsyncThreadPool::addService(const std::string &hostId, const std::string &s
 
             pthread_create(&threadId, NULL, clientThread, args);
             pthread_detach(threadId);
+            ClientInfo clientInfo;
+            clientInfo.port = port;
+            clientInfo.threadId = threadId;
+            this->clientInfoMap[hostId][serviceId][eventType] = clientInfo;
             if (verbose)
             {
                 printf("Added service {%s | %s} to async thread pool\n", hostId.c_str(), serviceId.c_str());
@@ -213,22 +243,43 @@ void AsyncThreadPool::removeService(const std::string &hostId, const std::string
     asyncThreadPoolLock.lock();
     if (this->findService(hostId, serviceId, eventType))
     {
-        if (verbose)
+        activeThreadIdsLock.lock();
+        if (eventType == e_AnyEvent)
         {
-            printf("Removing service {%s | %s} from async thread pool\n", hostId.c_str(), serviceId.c_str());
-        }
-        this->portMap[hostId][serviceId].erase(eventType);
-        if (this->portMap[hostId][serviceId].empty())
-        {
-
-            this->portMap[hostId].erase(serviceId);
-            if (this->portMap[hostId].empty())
+            for (auto itr = this->clientInfoMap[hostId][serviceId].begin(); itr != this->clientInfoMap[hostId][serviceId].end(); ++itr)
             {
-                this->portMap.erase(hostId);
+                activeThreadIds.erase(itr->second.threadId);
+                printf("Erasing %llu\n", (unsigned long long)itr->second.threadId);
             }
         }
+        else
+        {
+            printf("Erasing %llu\n", (unsigned long long)this->clientInfoMap[hostId][serviceId][eventType].threadId);
+            activeThreadIds.erase(this->clientInfoMap[hostId][serviceId][eventType].threadId);
+        }
+        activeThreadIdsLock.unlock();
+        this->clientInfoMap[hostId][serviceId].erase(eventType);
+
+        if (eventType == e_AnyEvent || this->clientInfoMap[hostId][serviceId].empty())
+        {
+
+            this->clientInfoMap[hostId].erase(serviceId);
+            if (this->clientInfoMap[hostId].empty())
+            {
+                this->clientInfoMap.erase(hostId);
+            }
+        }
+
+        asyncThreadPoolLock.unlock();
+        if (verbose)
+        {
+            printf("Removed service {%s | %s} from async thread pool\n", hostId.c_str(), serviceId.c_str());
+        }
     }
-    asyncThreadPoolLock.unlock();
+    else
+    {
+        asyncThreadPoolLock.unlock();
+    }
 }
 
 bool AsyncThreadPool::notifyService(const std::string &hostId, const std::string &serviceId, AsyncEventType eventType, int32_t tag)
@@ -247,7 +298,7 @@ bool AsyncThreadPool::notifyService(const std::string &hostId, const std::string
         struct sockaddr_in address;
         address.sin_family = AF_INET;
         address.sin_addr.s_addr = LOCALHOST;
-        address.sin_port = htons(this->portMap[hostId][serviceId][eventType]);
+        address.sin_port = htons(this->clientInfoMap[hostId][serviceId][eventType].port);
 
         int rc = sendto(this->notoficationSocket, buffer, sizeof(buffer), 0, reinterpret_cast<const struct sockaddr *>(&address), static_cast<socklen_t>(sizeof(address)));
         if (rc < 0)
