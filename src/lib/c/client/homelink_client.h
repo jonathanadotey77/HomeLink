@@ -21,9 +21,9 @@ extern "C"
     // from the host key file, the file is read once.
     const char *getHostKey();
 
-    // Sets fields within the HomeLinkClient struct using args.
-    bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId,
-                                    int argc, char **argv);
+    // Creates and returns new heap-allocated HomeLinkClient struct.
+    // Sets fields within the struct using the provided args.
+    HomeLinkClient *HomeLinkClient__create(const char *serviceId, int argc, char **argv);
 
     // Fetches the RSA public key and AES-256 key from the server,
     // while sending the client's RSA public key. All

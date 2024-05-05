@@ -1,6 +1,5 @@
 #include <homelink_client.h>
 #include <homelink_misc.h>
-#include <homelink_security.h>
 
 #include <signal.h>
 #include <stdbool.h>
@@ -221,15 +220,8 @@ int main(int argc, char **argv)
         return success ? 0 : 1;
     }
 
-    if (!initializeSecurity())
-    {
-        return 1;
-    }
-
     HomeLinkConfig config;
     readConfig(&config, configFilePath);
-
-    HomeLinkClient *client = (HomeLinkClient *)calloc(1, HomeLinkClient_SIZE);
 
     int argc2 = 4;
 
@@ -244,10 +236,10 @@ int main(int argc, char **argv)
 
     char *argv2[4] = {a0, a1, a2, a3};
 
-    if (!HomeLinkClient__initialize(client, argv[1], argc2, argv2))
+    HomeLinkClient *client = HomeLinkClient__create(argv[1], argc2, argv2);
+    if (client == NULL)
     {
         free(client);
-        cleanSecurity();
         return 1;
     }
 
@@ -256,7 +248,6 @@ int main(int argc, char **argv)
     if (!HomeLinkClient__fetchKeys(client))
     {
         free(client);
-        cleanSecurity();
         return 1;
     }
 
@@ -278,7 +269,6 @@ int main(int argc, char **argv)
         }
 
         free(client);
-        cleanSecurity();
 
         return 0;
     }
@@ -303,7 +293,6 @@ int main(int argc, char **argv)
         }
 
         free(client);
-        cleanSecurity();
 
         return 0;
     }
@@ -312,7 +301,6 @@ int main(int argc, char **argv)
     {
         fprintf(stderr, "Login failed\n");
         free(client);
-        cleanSecurity();
         return 1;
     }
 
@@ -320,7 +308,6 @@ int main(int argc, char **argv)
 
     HomeLinkClient__logout(client);
     HomeLinkClient__destruct(client);
-    cleanSecurity();
     free(client);
 
     return 0;

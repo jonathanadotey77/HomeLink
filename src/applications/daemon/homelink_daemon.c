@@ -57,8 +57,6 @@ int main(int argc, char **argv)
         return false;
     }
 
-    client = (HomeLinkClient *)calloc(1, HomeLinkClient_SIZE);
-
     signal(SIGINT, shutdownHandler);
     signal(SIGTSTP, shutdownHandler);
     signal(SIGPIPE, SIG_IGN);
@@ -68,7 +66,6 @@ int main(int argc, char **argv)
     {
         fprintf(stderr, "Environment variable HOMELINK_DAEMON_FILES is empty or not set\n");
         cleanSecurity();
-        free(client);
         return 1;
     }
     strncpy(daemonDirectory, dir, sizeof(daemonDirectory) - 2);
@@ -80,10 +77,10 @@ int main(int argc, char **argv)
     }
     daemonDirectory[strlen(daemonDirectory)] = '/';
 
-    if (!HomeLinkClient__initialize(client, "DAEMON", argc - 1, argv + 1))
+    client = HomeLinkClient__create("DAEMON", argc - 1, argv + 1);
+    if (client == NULL)
     {
         cleanSecurity();
-        free(client);
         return 1;
     }
 

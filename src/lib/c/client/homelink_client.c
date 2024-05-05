@@ -229,16 +229,23 @@ static void HomeLinkClient__sendCommand(int sd, const HomeLinkClient *client, co
     sendBufferTcp(sd, buffer, sizeof(buffer));
 }
 
-bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, int argc, char **argv)
+HomeLinkClient *HomeLinkClient__create(const char *serviceId, int argc, char **argv)
 {
     if (getHostKey() == NULL)
     {
-        return false;
+        return NULL;
     }
 
     if (!initializeSecurity())
     {
-        return false;
+        return NULL;
+    }
+
+    HomeLinkClient *client = (HomeLinkClient *)calloc(1, sizeof(HomeLinkClient));
+    if (client == NULL)
+    {
+        fprintf(stderr, "calloc() failed\n");
+        return NULL;
     }
 
     client->active = false;
@@ -263,7 +270,9 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
             if (field == NULL || strlen(field) == 0)
             {
                 fprintf(stderr, "Field for %s cannot be empty\n", token);
-                return false;
+                free(client);
+                cleanSecurity();
+                return NULL;
             }
             strncpy(client->hostId, field, sizeof(client->hostId) - 1);
         }
@@ -273,7 +282,9 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
             if (field == NULL || strlen(field) == 0)
             {
                 fprintf(stderr, "Field for %s cannot be empty\n", token);
-                return false;
+                free(client);
+                cleanSecurity();
+                return NULL;
             }
 
             strncpy(client->serverControlStr, field, sizeof(client->serverControlStr));
@@ -284,7 +295,9 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
             if (field == NULL || strlen(field) == 0)
             {
                 fprintf(stderr, "Field for %s cannot be empty\n", token);
-                return false;
+                free(client);
+                cleanSecurity();
+                return NULL;
             }
 
             for (char *p = field; *p != '\0'; ++p)
@@ -292,7 +305,9 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
                 if (!isdigit(*p))
                 {
                     fprintf(stderr, "Invalid value for %s\n", token);
-                    return false;
+                    free(client);
+                    cleanSecurity();
+                    return NULL;
                 }
             }
 
@@ -300,7 +315,9 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
             if (i == 0 || i >= UINT16_MAX)
             {
                 fprintf(stderr, "Invalid value for %s\n", token);
-                return false;
+                free(client);
+                cleanSecurity();
+                return NULL;
             }
 
             client->serverPort = (uint16_t)i;
@@ -310,17 +327,23 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
     if (client->hostId[0] == 0)
     {
         fprintf(stderr, "--host-id is a required argument for client intialization\n");
-        return false;
+        free(client);
+        cleanSecurity();
+        return NULL;
     }
     if (client->serverControlStr[0] == 0)
     {
         fprintf(stderr, "--server-address is a required argument for client intialization\n");
-        return false;
+        free(client);
+        cleanSecurity();
+        return NULL;
     }
     if (client->serverPort == 0)
     {
         fprintf(stderr, "--server-port is a required argument for client intialization\n");
-        return false;
+        free(client);
+        cleanSecurity();
+        return NULL;
     }
 
     struct in6_addr serverIpAddress = parseIpAddress(client->serverControlStr);
@@ -338,12 +361,14 @@ bool HomeLinkClient__initialize(HomeLinkClient *client, const char *serviceId, i
     if (client->asyncFileSocket < 0)
     {
         fprintf(stderr, "socket() failed [%d]\n", errno);
-        return false;
+        free(client);
+        cleanSecurity();
+        return NULL;
     }
 
     client->asyncFileThreadId = 0;
 
-    return true;
+    return client;
 }
 
 bool HomeLinkClient__fetchKeys(HomeLinkClient *client)
@@ -917,4 +942,5 @@ void HomeLinkClient__destruct(HomeLinkClient *client)
         pthread_join(client->asyncFileThreadId, NULL);
     }
     memset(client->sessionKey, 0, sizeof(client->sessionKey));
+    cleanSecurity();
 }
