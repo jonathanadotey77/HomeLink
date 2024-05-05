@@ -45,10 +45,14 @@ extern "C"
     // Uses session key to logout
     void HomeLinkClient__logout(HomeLinkClient *client);
 
+    // Initiates async file reading. For correct functioning, only one
+    // instance should be listening for a particular HostId and ServiceId.
     bool HomeLinkClient__readFileAsync(HomeLinkClient *client, const char *directory, HomeLinkAsyncReadFileCallback callback, void *context);
 
+    // Waits for all async reading to stop.
     void HomeLinkClient__waitAsync(HomeLinkClient *client);
 
+    // Stops all async reading.
     void HomeLinkClient__stopAsync(HomeLinkClient *client);
 
     // Checks for file in the service's queue, returns the path to the
