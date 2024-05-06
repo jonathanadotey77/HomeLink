@@ -1,5 +1,6 @@
 #include <homelink_client.h>
 #include <homelink_misc.h>
+#include <homelink_packet.h>
 
 #include <signal.h>
 #include <stdbool.h>
@@ -253,7 +254,7 @@ int main(int argc, char **argv)
 
     if (argc == 2 && stringEqual("--register-host", argv[1]))
     {
-        RegisterStatus status = HomeLinkClient__registerHost(client);
+        RegisterStatus status = (RegisterStatus)HomeLinkClient__registerHost(client);
 
         if (status == e_RegisterSuccess)
         {

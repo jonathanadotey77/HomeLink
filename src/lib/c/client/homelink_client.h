@@ -6,8 +6,6 @@ extern "C"
 {
 #endif
 
-#include <homelink_packet.h>
-
 #include <arpa/inet.h>
 #include <stdbool.h>
 
@@ -33,11 +31,11 @@ extern "C"
 
     // Registers the host with the server, may create host file if it
     // does not exist.
-    RegisterStatus HomeLinkClient__registerHost(const HomeLinkClient *client);
+    int HomeLinkClient__registerHost(const HomeLinkClient *client);
 
     // Registers the service with the server, requires host key file
     // to already exist.
-    RegisterStatus HomeLinkClient__registerService(const HomeLinkClient *client, const char *serviceId, const char *password);
+    int HomeLinkClient__registerService(const HomeLinkClient *client, const char *serviceId, const char *password);
 
     // Tries login, initializes session key on success
     bool HomeLinkClient__login(HomeLinkClient *client, const char *password);
@@ -66,7 +64,8 @@ extern "C"
                                    const char *destinationServiceId,
                                    const char *localPath, const char *remotePath);
 
-    // Writes over session key
+    // Writes over session key and closes sockets, DOES NOT
+    // free client memory.
     void HomeLinkClient__destruct(HomeLinkClient *client);
 
 #ifdef __cplusplus

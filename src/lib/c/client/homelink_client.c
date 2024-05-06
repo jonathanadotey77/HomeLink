@@ -2,6 +2,7 @@
 
 #include <homelink_misc.h>
 #include <homelink_net.h>
+#include <homelink_packet.h>
 #include <homelink_security.h>
 
 #include <arpa/inet.h>
@@ -460,7 +461,7 @@ bool HomeLinkClient__fetchKeys(HomeLinkClient *client)
     return false;
 }
 
-RegisterStatus HomeLinkClient__registerHost(const HomeLinkClient *client)
+int HomeLinkClient__registerHost(const HomeLinkClient *client)
 {
     int sd = socket(AF_INET6, SOCK_STREAM, 0);
     if (sd < 0)
@@ -548,7 +549,7 @@ RegisterStatus HomeLinkClient__registerHost(const HomeLinkClient *client)
     return registerResponsePacket.status;
 }
 
-RegisterStatus HomeLinkClient__registerService(const HomeLinkClient *client, const char *serviceId, const char *password)
+int HomeLinkClient__registerService(const HomeLinkClient *client, const char *serviceId, const char *password)
 {
     int sd = socket(AF_INET6, SOCK_STREAM, 0);
     if (sd < 0)
