@@ -77,7 +77,7 @@ int main(int argc, char **argv)
     }
     daemonDirectory[strlen(daemonDirectory)] = '/';
 
-    client = HomeLinkClient__create("DAEMON", argc - 1, argv + 1);
+    client = HomeLinkClient__createWithArgs("DAEMON", argc - 1, (const char **)(argv + 1));
     if (client == NULL)
     {
         cleanSecurity();

@@ -224,23 +224,9 @@ int main(int argc, char **argv)
     HomeLinkConfig config;
     readConfig(&config, configFilePath);
 
-    int argc2 = 4;
-
-    char a0[33] = {0};
-    char a1[33] = {0};
-    char a2[33] = {0};
-    char a3[33] = {0};
-
-    snprintf(a0, 32, "--host-id=%s", config.hostId);
-    snprintf(a1, 32, "--server-address=%s", config.serverAddress);
-    snprintf(a2, 32, "--server-port=%s", config.serverPort);
-
-    char *argv2[4] = {a0, a1, a2, a3};
-
-    HomeLinkClient *client = HomeLinkClient__create(argv[1], argc2, argv2);
+    HomeLinkClient *client = HomeLinkClient__create(config.hostId, argv[1], config.serverAddress, atoi(config.serverPort));
     if (client == NULL)
     {
-        free(client);
         return 1;
     }
 

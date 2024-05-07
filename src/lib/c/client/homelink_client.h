@@ -19,9 +19,12 @@ extern "C"
     // from the host key file, the file is read once.
     const char *getHostKey();
 
+    // Creates client struct, allocated on the heap.
+    HomeLinkClient *HomeLinkClient__create(const char *hostId, const char *serviceId, const char *serverAddress, int port);
+
     // Creates and returns new heap-allocated HomeLinkClient struct.
     // Sets fields within the struct using the provided args.
-    HomeLinkClient *HomeLinkClient__create(const char *serviceId, int argc, char **argv);
+    HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, const char **argv);
 
     // Fetches the RSA public key and AES-256 key from the server,
     // while sending the client's RSA public key. All

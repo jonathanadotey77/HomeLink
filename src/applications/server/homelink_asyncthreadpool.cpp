@@ -39,11 +39,6 @@ static bool isActiveThread(pthread_t threadId)
 
     activeThreadIdsLock.unlock();
 
-    if (active)
-    {
-        printf("found %llu\n", (unsigned long long)threadId);
-    }
-
     return active;
 }
 

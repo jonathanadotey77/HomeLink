@@ -20,7 +20,7 @@ static const int RETRY_COUNT = 5;
 
 typedef struct HomeLinkClient
 {
-    char serverControlStr[64];
+    char serverAddressStr[64];
     struct sockaddr_in6 serverAddress;
     uint16_t serverPort;
     char serverPublicKey[512];
@@ -230,8 +230,13 @@ static void HomeLinkClient__sendCommand(int sd, const HomeLinkClient *client, co
     sendBufferTcp(sd, buffer, sizeof(buffer));
 }
 
-HomeLinkClient *HomeLinkClient__create(const char *serviceId, int argc, char **argv)
+HomeLinkClient *HomeLinkClient__create(const char *hostId, const char *serviceId, const char *serverAddress, int port)
 {
+    if (port <= 0 || port > UINT16_MAX)
+    {
+        fprintf(stderr, "Invalid port in HomeLinkClient__create()\n");
+        return NULL;
+    }
     if (getHostKey() == NULL)
     {
         return NULL;
@@ -249,10 +254,49 @@ HomeLinkClient *HomeLinkClient__create(const char *serviceId, int argc, char **a
         return NULL;
     }
 
-    client->active = false;
+    strncpy(client->hostId, hostId, sizeof(client->hostId) - 1);
+    strncpy(client->serviceId, serviceId, sizeof(client->serviceId) - 1);
+    strncpy(client->serverAddressStr, serverAddress, sizeof(client->serverAddressStr) - 1);
 
-    memset(client, 0, sizeof(HomeLinkClient));
-    client->serverPort = 0;
+    client->serverPort = (uint16_t)port;
+
+    const struct in6_addr serverIpAddress = parseIpAddress(client->serverAddressStr);
+    client->serverAddress.sin6_family = AF_INET6;
+    memcpy(&client->serverAddress.sin6_addr, &serverIpAddress, sizeof(client->serverAddress.sin6_addr));
+    client->serverAddress.sin6_port = htons(client->serverPort);
+    client->serverAddress.sin6_flowinfo = 0;
+    client->serverAddress.sin6_scope_id = 0;
+
+    client->asyncFileSocket = socket(AF_INET6, SOCK_STREAM, 0);
+    if (client->asyncFileSocket < 0)
+    {
+        fprintf(stderr, "socket() failed [%d]\n", errno);
+        free(client);
+        cleanSecurity();
+        return NULL;
+    }
+
+    return client;
+}
+
+HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, const char **argv)
+{
+    if (getHostKey() == NULL)
+    {
+        return NULL;
+    }
+
+    if (!initializeSecurity())
+    {
+        return NULL;
+    }
+
+    HomeLinkClient *client = (HomeLinkClient *)calloc(1, sizeof(HomeLinkClient));
+    if (client == NULL)
+    {
+        fprintf(stderr, "calloc() failed\n");
+        return NULL;
+    }
 
     for (int i = 0; i < argc; ++i)
     {
@@ -288,7 +332,7 @@ HomeLinkClient *HomeLinkClient__create(const char *serviceId, int argc, char **a
                 return NULL;
             }
 
-            strncpy(client->serverControlStr, field, sizeof(client->serverControlStr));
+            strncpy(client->serverAddressStr, field, sizeof(client->serverAddressStr));
         }
         else if (stringEqual(token, "--server-port"))
         {
@@ -332,7 +376,7 @@ HomeLinkClient *HomeLinkClient__create(const char *serviceId, int argc, char **a
         cleanSecurity();
         return NULL;
     }
-    if (client->serverControlStr[0] == 0)
+    if (client->serverAddressStr[0] == 0)
     {
         fprintf(stderr, "--server-address is a required argument for client intialization\n");
         free(client);
@@ -347,7 +391,7 @@ HomeLinkClient *HomeLinkClient__create(const char *serviceId, int argc, char **a
         return NULL;
     }
 
-    struct in6_addr serverIpAddress = parseIpAddress(client->serverControlStr);
+    struct in6_addr serverIpAddress = parseIpAddress(client->serverAddressStr);
     client->serverAddress.sin6_family = AF_INET6;
     memcpy(&client->serverAddress.sin6_addr, &serverIpAddress, sizeof(client->serverAddress.sin6_addr));
     client->serverAddress.sin6_port = htons(client->serverPort);
@@ -857,7 +901,7 @@ char *HomeLinkClient__readFile(const HomeLinkClient *client, const char *directo
 
     if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
     {
-        fprintf(stderr, "connect() failed here [%d]\n", errno);
+        fprintf(stderr, "connect() failed [%d]\n", errno);
         close(sd);
         return NULL;
     }
