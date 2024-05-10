@@ -294,7 +294,7 @@ int main(int argc, char **argv)
     handleCommand(client, argc - 2, argv + 2);
 
     HomeLinkClient__logout(client);
-    HomeLinkClient__destruct(client);
+    HomeLinkClient__delete(&client);
     free(client);
 
     return 0;

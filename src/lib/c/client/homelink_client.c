@@ -923,7 +923,23 @@ char *HomeLinkClient__readFile(const HomeLinkClient *client, const char *directo
         return (char *)calloc(1, 1);
     }
 
-    char *filePath = recvFile(sd, directory == NULL ? "" : directory, client->aesKey, e_ClientRecv);
+    char prefix[256] = {0};
+    char lastChar = '\0';
+    size_t len = 0;
+    if (directory != NULL)
+    {
+        for (const char *ptr = directory; *ptr != '\0'; ++ptr)
+        {
+            lastChar = *ptr;
+            prefix[len++] = *ptr;
+        }
+    }
+    if (lastChar != '/')
+    {
+        prefix[len++] = '/';
+    }
+
+    char *filePath = recvFile(sd, prefix, client->aesKey, e_ClientRecv);
 
     close(sd);
     sd = socket(AF_INET6, SOCK_STREAM, 0);
@@ -979,13 +995,15 @@ bool HomeLinkClient__writeFile(const HomeLinkClient *client, const char *destina
     return status;
 }
 
-void HomeLinkClient__destruct(HomeLinkClient *client)
+void HomeLinkClient__delete(HomeLinkClient **client)
 {
-    close(client->asyncFileSocket);
-    if (client->asyncFileThreadId != 0)
+    close((*client)->asyncFileSocket);
+    if ((*client)->asyncFileThreadId != 0)
     {
-        pthread_join(client->asyncFileThreadId, NULL);
+        pthread_join((*client)->asyncFileThreadId, NULL);
     }
-    memset(client->sessionKey, 0, sizeof(client->sessionKey));
+    memset((*client)->sessionKey, 0, sizeof((*client)->sessionKey));
     cleanSecurity();
+    free(*client);
+    *client = NULL;
 }

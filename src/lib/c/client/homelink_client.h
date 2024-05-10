@@ -67,9 +67,9 @@ extern "C"
                                    const char *destinationServiceId,
                                    const char *localPath, const char *remotePath);
 
-    // Writes over session key and closes sockets, DOES NOT
-    // free client memory.
-    void HomeLinkClient__destruct(HomeLinkClient *client);
+    // Writes over session key and closes sockets, and frees client memory.
+    // Sets pointer to NULL.
+    void HomeLinkClient__delete(HomeLinkClient **client);
 
 #ifdef __cplusplus
 }

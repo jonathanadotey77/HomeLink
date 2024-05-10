@@ -26,7 +26,7 @@ void shutdownHandler(int sig)
 void shutdownDaemon()
 {
     HomeLinkClient__logout(client);
-    HomeLinkClient__destruct(client);
+    HomeLinkClient__delete(&client);
     free(client);
 }
 
