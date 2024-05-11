@@ -11,3 +11,4 @@ todo.txt
 build/
 *.egg-info*
 daemon_files/
+target/
