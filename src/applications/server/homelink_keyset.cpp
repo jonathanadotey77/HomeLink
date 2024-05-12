@@ -27,9 +27,9 @@ KeySet::KeySet(const char *rsaPublicKey, size_t rsaPublicKeyLen)
     this->rsaPublicKeyLen = rsaPublicKeyLen;
     strncpy(this->rsaPublicKey, rsaPublicKey, rsaPublicKeyLen);
 
-    this->aesKey = new uint8_t[AES_KEY_LEN / 8];
-    this->aesKeyLen = AES_KEY_LEN / 8;
-    generateAESKey(aesKey, AES_KEY_LEN);
+    this->aesKey = new uint8_t[AES_KEY_SIZE / 8];
+    this->aesKeyLen = AES_KEY_SIZE / 8;
+    generateAESKey(aesKey, AES_KEY_SIZE);
     this->ctx = EVP_CIPHER_CTX_new();
 }
 
@@ -63,7 +63,7 @@ const char *KeySet::newSessionKey()
 {
     uint8_t key[16] = {0};
     randomBytes(key, sizeof(key));
-    char keyStr[sizeof(key) * 2 + 1] = {0};
+    char keyStr[sizeof(key) * 2 + 16] = {0};
     getByteStr(keyStr, key, sizeof(key));
     std::pair<std::unordered_set<std::string>::iterator, bool> p =
         this->sessionKeys.insert(std::string(keyStr));

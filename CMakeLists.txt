@@ -23,14 +23,3 @@ execute_process(
 
 add_subdirectory(src/applications)
 add_subdirectory(src/lib/c)
-# add_subdirectory(src/wrappers/python)
-
-set_target_properties(homelink_client PROPERTIES PUBLIC_HEADER "src/lib/c/client/homelink_client.h")
-
-install(TARGETS homelink_client
-    LIBRARY DESTINATION /usr/lib
-    PUBLIC_HEADER DESTINATION include/homelink)
-
-install(TARGETS homelink_client
-    LIBRARY DESTINATION /usr/local/lib/homelink
-    PUBLIC_HEADER DESTINATION include/homelink)

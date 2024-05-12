@@ -105,30 +105,30 @@ void KeyResponsePacket_deserialize(KeyResponsePacket *packet, const uint8_t *buf
     packet->rsaPublicKey[sizeof(packet->rsaPublicKey) - 1] = '\0';
 }
 
-const int32_t CommandPacket_SIZE = sizeof(((CommandPacket){0}).packetType) + sizeof(((CommandPacket){0}).connectionId) + sizeof(((CommandPacket){0}).sessionToken) + sizeof(((CommandPacket){0}).data);
+const int32_t CommandPacket_SIZE = sizeof(((CommandPacket){0}).packetType) + sizeof(((CommandPacket){0}).connectionId) + sizeof(((CommandPacket){0}).sessionKey) + sizeof(((CommandPacket){0}).data);
 
 void CommandPacket_serialize(uint8_t *buffer, const CommandPacket *packet)
 {
     uint8_t *packetType = (uint8_t *)(buffer);
     uint32_t *connectionId = (uint32_t *)(buffer + sizeof(packet->packetType));
-    uint8_t *sessionToken = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
-    uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->sessionToken));
+    uint8_t *sessionKey = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
+    uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->sessionKey));
 
     *packetType = packet->packetType;
     *connectionId = htonl(packet->connectionId);
-    memcpy(sessionToken, packet->sessionToken, sizeof(packet->sessionToken));
+    memcpy(sessionKey, packet->sessionKey, sizeof(packet->sessionKey));
     memcpy(data, packet->data, sizeof(packet->data));
 }
 void CommandPacket_deserialize(CommandPacket *packet, const uint8_t *buffer)
 {
     const uint8_t *packetType = (const uint8_t *)(buffer);
     const uint32_t *connectionId = (const uint32_t *)(buffer + sizeof(packet->packetType));
-    const uint8_t *sessionToken = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
-    const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->sessionToken));
+    const uint8_t *sessionKey = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
+    const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId) + sizeof(packet->sessionKey));
 
     packet->packetType = *packetType;
     packet->connectionId = ntohl(*connectionId);
-    memcpy(packet->sessionToken, sessionToken, sizeof(packet->sessionToken));
+    memcpy(packet->sessionKey, sessionKey, sizeof(packet->sessionKey));
     memcpy(packet->data, data, sizeof(packet->data));
 }
 

@@ -19,6 +19,7 @@ void shutdownHandler(int sig)
     if (sig)
     {
     }
+    printf("Stopping daemon\n");
     stopped = true;
     HomeLinkClient__stopAsync(client);
 }
@@ -99,7 +100,7 @@ int main(int argc, char **argv)
         shutdownDaemon();
     }
 
-    if (!HomeLinkClient__login(client, daemonPassword))
+    if (HomeLinkClient__login(client, daemonPassword) != e_LoginSuccess)
     {
         fprintf(stderr, "Login failed\n");
         cleanSecurity();
@@ -109,7 +110,6 @@ int main(int argc, char **argv)
 
     run();
 
-    cleanSecurity();
     shutdownDaemon();
 
     return 0;

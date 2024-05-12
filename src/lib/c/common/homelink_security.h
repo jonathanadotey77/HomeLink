@@ -11,52 +11,61 @@ extern "C"
 #include <stdint.h>
 #include <unistd.h>
 
+    extern const size_t RSA_KEY_SIZE;
+
+    extern const size_t AES_KEY_SIZE;
+
     // uint16_t randomInt16();
 
     // uint32_t randomInt32();
 
     // Initializes rand() a local RSA public and private key.
     // RSA-2048 is used.
-    bool initializeSecurity();
+    extern bool initializeSecurity();
 
     // Cleans security variables.
-    void cleanSecurity();
+    extern void cleanSecurity();
 
     // Writes the local RSA public key to a buffer, gives the length.
-    void getRSAPublicKey(char *buffer, size_t *len);
+    extern void getRSAPublicKey(char *buffer, size_t *len);
 
     // Prints the local RSA public key.
-    void printRSAPublicKey();
+    extern void printRSAPublicKey();
 
     // Writes n random bytes to a buffer.
-    void randomBytes(uint8_t *buffer, int n);
+    extern void randomBytes(uint8_t *buffer, int n);
 
     // Writes an AES key of the given size to a buffer.  Size is in bits,
     // not bytes.
-    void generateAESKey(uint8_t *buffer, uint16_t keySize);
+    extern void generateAESKey(uint8_t *buffer, uint16_t keySize);
 
-    // Encrypts a buffer with AES-GCM encryption with the given iv and tag.
-    bool aesEncrypt(uint8_t *out, int *outLen, const uint8_t *in, int inLen,
-                    const uint8_t *key, const uint8_t *iv, uint8_t *tag);
+    // Encrypts a buffer with AES-GCM encryption with the given iv, writes
+    // the validation tag to a buffer.
+    extern bool aesEncrypt(uint8_t *out, int *outLen, const uint8_t *in, int inLen,
+                           const uint8_t *key, const uint8_t *iv, uint8_t *tag);
 
     // Decrypts a buffer with AES-GCM encryption with the given iv and tag.
-    bool aesDecrypt(uint8_t *out, int *outLen, const uint8_t *in, int inLen,
-                    const uint8_t *key, const uint8_t *iv, uint8_t *tag);
+    extern bool aesDecrypt(uint8_t *out, int *outLen, const uint8_t *in, int inLen,
+                           const uint8_t *key, const uint8_t *iv, uint8_t *tag);
 
     // Encrypts a buffer with RSA-2048 encryption with the given key.
-    bool rsaEncrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen,
-                    const char *key);
+    extern bool rsaEncrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen,
+                           const char *key);
 
     // Decrypts a buffer with RSA-2048 encryption with the given key.
-    bool rsaDecrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen,
-                    const char *key);
+    extern bool rsaDecrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen,
+                           const char *key);
+
+    extern bool encryptSessionKey(uint8_t *out, const char *sessionKey, const uint8_t *aesKey);
+
+    extern bool decryptSessionKey(char *sessionKey, uint8_t *in, const uint8_t *aesKey);
 
     // Returns a heap allocated string that represents the hash of the password.
-    char *hashPassword(const char *password, size_t passwordLen);
+    extern char *hashPassword(const char *password, size_t passwordLen);
 
     // // Returns a heap allocated string that represents the salted hash of the password.
-    char *saltedHash(const char *password, size_t passwordLen, const char *salt,
-                     size_t saltLen);
+    extern char *saltedHash(const char *password, size_t passwordLen, const char *salt,
+                            size_t saltLen);
 
 #ifdef __cplusplus
 }

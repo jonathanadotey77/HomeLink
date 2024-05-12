@@ -14,7 +14,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const size_t RSA_KEY_SIZE = 2048U;
+const size_t RSA_KEY_SIZE = 2048U;
+const size_t AES_KEY_SIZE = 256U;
+const size_t SESSION_KEY_SIZE = 48U;
 
 static bool randInitialized = false;
 static EVP_PKEY *keypair = NULL;
@@ -343,6 +345,25 @@ bool rsaDecrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen, c
 
     EVP_PKEY_CTX_free(ctx);
     return true;
+}
+
+bool encryptSessionKey(uint8_t *out, const char *sessionKey, const uint8_t *aesKey)
+{
+    int len = (int)SESSION_KEY_SIZE;
+    uint8_t *iv = out + SESSION_KEY_SIZE;
+    uint8_t *tag = out + SESSION_KEY_SIZE + 16;
+
+    randomBytes(iv, 16);
+    return aesEncrypt(out, &len, (const uint8_t *)sessionKey, len, aesKey, iv, tag);
+}
+
+bool decryptSessionKey(char *sessionKey, uint8_t *in, const uint8_t *aesKey)
+{
+    int len = (int)SESSION_KEY_SIZE;
+    uint8_t *iv = in + SESSION_KEY_SIZE;
+    uint8_t *tag = in + SESSION_KEY_SIZE + 16;
+
+    return aesDecrypt((uint8_t *)sessionKey, &len, in, len, aesKey, iv, tag);
 }
 
 char *hashPassword(const char *password, size_t passwordLen)

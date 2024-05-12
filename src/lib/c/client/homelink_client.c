@@ -29,7 +29,7 @@ typedef struct HomeLinkClient
     char hostId[33];
     char serviceId[33];
     uint32_t connectionId;
-    char sessionKey[256];
+    char sessionKey[48];
     volatile bool active;
     int asyncFileSocket;
     pthread_t asyncFileThreadId;
@@ -209,20 +209,23 @@ static void *HomeLinkClient__readFileAsyncThread(void *a)
 
 static void HomeLinkClient__sendCommand(int sd, const HomeLinkClient *client, const char *command)
 {
-    CommandPacket commandPacket;
-    memset(&commandPacket, 0, sizeof(commandPacket));
+    CommandPacket commandPacket = {0};
 
     commandPacket.packetType = e_Command;
     commandPacket.connectionId = client->connectionId;
 
-    size_t len = sizeof(commandPacket.sessionToken);
-    rsaEncrypt(commandPacket.sessionToken, &len, (uint8_t *)client->sessionKey, strlen(client->sessionKey) + 1, client->serverPublicKey);
+    encryptSessionKey(commandPacket.sessionKey, client->sessionKey, client->aesKey);
 
-    char commandData[200] = {0};
-    len = sizeof(commandPacket.data);
+    char commandData[224] = {0};
+    int len = sizeof(commandPacket.data);
     randomBytes((uint8_t *)commandData, 32);
     strncpy(commandData + 32, command, sizeof(commandData) - 32 - 1);
-    rsaEncrypt(commandPacket.data, &len, (uint8_t *)commandData, sizeof(commandData), client->serverPublicKey);
+
+    uint8_t *iv = commandPacket.data + 224;
+    uint8_t *tag = commandPacket.data + 240;
+
+    randomBytes(iv, 16);
+    aesEncrypt(commandPacket.data, &len, (uint8_t *)commandData, sizeof(commandData), client->aesKey, iv, tag);
 
     uint8_t buffer[CommandPacket_SIZE];
     CommandPacket_serialize(buffer, &commandPacket);
@@ -697,20 +700,20 @@ int HomeLinkClient__registerService(const HomeLinkClient *client, const char *se
     return e_RegisterFailed;
 }
 
-bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
+int HomeLinkClient__login(HomeLinkClient *client, const char *password)
 {
     int sd = socket(AF_INET6, SOCK_STREAM, 0);
     if (sd < 0)
     {
         fprintf(stderr, "socket() failed [%d]\n", errno);
-        return e_RegisterFailed;
+        return e_LoginFailed;
     }
 
     if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
     {
         fprintf(stderr, "connect() failed [%d]\n", errno);
         close(sd);
-        return e_RegisterFailed;
+        return e_LoginFailed;
     }
 
     uint8_t buffer[1024] = {0};
@@ -747,7 +750,7 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
             fprintf(stderr, "sendBufferTcp() failed\n");
             memset(passwordData, 0, sizeof(passwordData));
             close(sd);
-            return false;
+            return e_LoginFailed;
         }
 
         status = sendBufferTcp(sd, buffer + 1, LoginRequestPacket_SIZE - 1);
@@ -756,7 +759,7 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
             fprintf(stderr, "sendBufferTcp() failed\n");
             memset(passwordData, 0, sizeof(passwordData));
             close(sd);
-            return false;
+            return e_LoginFailed;
         }
 
         status = recvBufferTcp(sd, buffer, LoginResponsePacket_SIZE);
@@ -764,7 +767,7 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
         {
             fprintf(stderr, "recvBufferTcp() failed\n");
             close(sd);
-            return false;
+            return e_LoginFailed;
         }
 
         LoginResponsePacket loginResponsePacket;
@@ -777,12 +780,12 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
             fprintf(stderr, "Incorrect password\n");
             memset(passwordData, 0, sizeof(passwordData));
             close(sd);
-            return false;
+            return e_LoginFailed;
         }
         else if (loginStatus == e_LoginSuccess)
         {
             size_t len = sizeof(client->sessionKey);
-            rsaDecrypt((uint8_t *)client->sessionKey, &len, loginResponsePacket.sessionKey, sizeof(loginResponsePacket.sessionKey), NULL);
+            decryptSessionKey(client->sessionKey, loginResponsePacket.sessionKey, client->aesKey);
             break;
         }
         else
@@ -790,14 +793,14 @@ bool HomeLinkClient__login(HomeLinkClient *client, const char *password)
             fprintf(stderr, "Login error\n");
             memset(passwordData, 0, sizeof(passwordData));
             close(sd);
-            return false;
+            return e_LoginFailed;
         }
     }
 
     memset(passwordData, 0, sizeof(passwordData));
     close(sd);
     client->active = true;
-    return true;
+    return e_LoginSuccess;
 }
 
 void HomeLinkClient__logout(HomeLinkClient *client)
@@ -822,7 +825,7 @@ void HomeLinkClient__logout(HomeLinkClient *client)
     logoutPacket.packetType = e_Logout;
     logoutPacket.connectionId = client->connectionId;
     size_t len = sizeof(logoutPacket.sessionKey);
-    bool status = rsaEncrypt(logoutPacket.sessionKey, &len, (uint8_t *)client->sessionKey, strlen(client->sessionKey) + 1, client->serverPublicKey);
+    bool status = encryptSessionKey(logoutPacket.sessionKey, client->sessionKey, client->aesKey);
     if (!status)
     {
         fprintf(stderr, "rsaEncrypt() failed\n");

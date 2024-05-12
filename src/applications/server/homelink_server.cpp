@@ -123,43 +123,52 @@ std::vector<std::string> splitString(const std::string &s, char delim = ' ')
     return tokens;
 }
 
-bool validateClient(uint32_t connectionId, const uint8_t *encryptedSessionKey,
-                    size_t encryptedSessionKeyLen)
+bool validateClient(uint32_t connectionId, uint8_t *encryptedSessionKey)
 {
     if (verbose)
     {
         printf("Validating client {connectionId=%u}\n", connectionId);
     }
     bool success = false;
-    char sessionKey[256];
+    char sessionKey[48];
     memset(sessionKey, 0, sizeof(sessionKey));
-    size_t len = sizeof(sessionKey);
 
     clientKeysLock.lock();
-    if (rsaDecrypt(reinterpret_cast<uint8_t *>(sessionKey), &len,
-                   encryptedSessionKey, encryptedSessionKeyLen, NULL))
+    if (clientKeys.find(connectionId) == clientKeys.end())
     {
-        if (clientKeys.find(connectionId) == clientKeys.end())
+        if (verbose)
         {
-            if (verbose)
-            {
-                printf("Connection ID not found\n");
-            }
-        }
-        else if (clientKeys[connectionId].validSessionKey(sessionKey))
-        {
-            if (verbose)
-            {
-                printf("Validation successful\n");
-            }
-            success = true;
+            printf("Connection ID not found\n");
         }
     }
     else
     {
-        if (verbose)
+        uint8_t *aesKey = clientKeys[connectionId].getAesKey();
+        success = decryptSessionKey(sessionKey, encryptedSessionKey, aesKey);
+        memset(aesKey, 0, AES_KEY_SIZE / 8);
+        delete[] aesKey;
+        aesKey = NULL;
+        if (!success)
         {
-            printf("Could not decrypt session key\n");
+            if (verbose)
+            {
+                printf("Could not decrypt session key\n");
+            }
+        }
+        else
+        {
+            success = clientKeys[connectionId].validSessionKey(sessionKey);
+            if (success)
+            {
+                if (verbose)
+                {
+                    printf("Validation successful\n");
+                }
+            }
+            else
+            {
+                printf("Invalid: %s\n", sessionKey);
+            }
         }
     }
     clientKeysLock.unlock();
@@ -214,8 +223,8 @@ void handleKeyRequest(int sd, const KeyRequestPacket *keyRequestPacket)
     strncpy(keyResponsePacket.rsaPublicKey, publicKey, len);
 
     uint8_t *aesKey = clientKeys[keyRequestPacket->connectionId].getAesKey();
-    rsaEncrypt(keyResponsePacket.aesKey, &len, aesKey, AES_KEY_LEN / 8, keyRequestPacket->rsaPublicKey);
-    memset(aesKey, 0, AES_KEY_LEN / 8);
+    rsaEncrypt(keyResponsePacket.aesKey, &len, aesKey, AES_KEY_SIZE / 8, keyRequestPacket->rsaPublicKey);
+    memset(aesKey, 0, AES_KEY_SIZE / 8);
     delete[] aesKey;
 
     uint8_t buffer[KeyResponsePacket_SIZE];
@@ -406,17 +415,17 @@ void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
         {
             clientKeys[connectionId].setUser(hostId, serviceId);
 
-            const char *sessionToken = clientKeys[connectionId].newSessionKey();
+            const char *sessionKey = clientKeys[connectionId].newSessionKey();
             size_t outLen = sizeof(loginResponsePacket.sessionKey);
 
-            bool success = rsaEncrypt(loginResponsePacket.sessionKey, &outLen,
-                                      reinterpret_cast<const uint8_t *>(sessionToken),
-                                      strlen(sessionToken) + 1,
-                                      clientKeys[connectionId].getPublicKey());
+            uint8_t *aesKey = clientKeys[connectionId].getAesKey();
+            bool success = encryptSessionKey(loginResponsePacket.sessionKey, sessionKey, aesKey);
+            memset(aesKey, 0, AES_KEY_SIZE / 8);
+            delete[] aesKey;
             if (!success)
             {
                 clientKeysLock.unlock();
-                fprintf(stderr, "rsaEncrypt() failed\n");
+                fprintf(stderr, "encryptSessionKey() failed\n");
                 return;
             }
         }
@@ -440,15 +449,14 @@ void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
     clientKeysLock.unlock();
 }
 
-void handleLogout(const LogoutPacket *logoutPacket)
+void handleLogout(LogoutPacket *logoutPacket)
 {
     if (verbose)
     {
         printf("Logout packet received {%u}\n", logoutPacket->connectionId);
     }
 
-    if (validateClient(logoutPacket->connectionId, logoutPacket->sessionKey,
-                       sizeof(logoutPacket->sessionKey)))
+    if (validateClient(logoutPacket->connectionId, logoutPacket->sessionKey))
     {
         clientKeysLock.lock();
         if (verbose)
@@ -662,8 +670,7 @@ void *clientThread(void *a)
             break;
         }
 
-        if (!validateClient(commandPacket.connectionId, commandPacket.sessionToken,
-                            sizeof(commandPacket.sessionToken)))
+        if (!validateClient(commandPacket.connectionId, commandPacket.sessionKey))
         {
             if (verbose)
             {
@@ -680,10 +687,12 @@ void *clientThread(void *a)
         aesKey = info.getAesKey();
         clientKeysLock.unlock();
 
-        char commandStr[256] = {0};
-        size_t commandStrLen = sizeof(commandStr);
-        if (!rsaDecrypt(reinterpret_cast<uint8_t *>(commandStr), &commandStrLen,
-                        commandPacket.data, sizeof(commandPacket.data), NULL))
+        char commandStr[224] = {0};
+        int commandStrLen = sizeof(commandStr);
+
+        const uint8_t *iv = commandPacket.data + 224;
+        uint8_t *tag = commandPacket.data + 240;
+        if (!aesDecrypt(reinterpret_cast<uint8_t *>(commandStr), &commandStrLen, commandPacket.data, 224, aesKey, iv, tag))
         {
             if (verbose)
             {
@@ -693,8 +702,7 @@ void *clientThread(void *a)
             break;
         }
 
-        std::vector<std::string> tokens =
-            splitString(std::string(commandStr + 32), ' ');
+        std::vector<std::string> tokens = splitString(std::string(commandStr + 32), ' ');
 
         if (tokens.empty())
         {

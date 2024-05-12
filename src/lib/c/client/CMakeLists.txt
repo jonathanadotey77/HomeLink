@@ -2,7 +2,7 @@ file(GLOB SOURCES "*.c")
 
 
 
-add_library(homelink_client SHARED ${SOURCES})
+add_library(homelink_client STATIC ${SOURCES})
 
 find_package(OpenSSL REQUIRED)
 

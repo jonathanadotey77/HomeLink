@@ -9,7 +9,6 @@
 #include <unordered_set>
 #include <vector>
 
-static const size_t AES_KEY_LEN = 256;
 class KeySet
 {
 private:

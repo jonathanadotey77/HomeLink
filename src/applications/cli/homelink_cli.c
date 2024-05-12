@@ -284,7 +284,7 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    if (!HomeLinkClient__login(client, "password"))
+    if (HomeLinkClient__login(client, "password") != e_LoginSuccess)
     {
         fprintf(stderr, "Login failed\n");
         free(client);
