@@ -784,7 +784,6 @@ int HomeLinkClient__login(HomeLinkClient *client, const char *password)
         }
         else if (loginStatus == e_LoginSuccess)
         {
-            size_t len = sizeof(client->sessionKey);
             decryptSessionKey(client->sessionKey, loginResponsePacket.sessionKey, client->aesKey);
             break;
         }
@@ -824,7 +823,6 @@ void HomeLinkClient__logout(HomeLinkClient *client)
     memset(&logoutPacket, 0, sizeof(logoutPacket));
     logoutPacket.packetType = e_Logout;
     logoutPacket.connectionId = client->connectionId;
-    size_t len = sizeof(logoutPacket.sessionKey);
     bool status = encryptSessionKey(logoutPacket.sessionKey, client->sessionKey, client->aesKey);
     if (!status)
     {

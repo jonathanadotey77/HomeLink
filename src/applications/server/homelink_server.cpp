@@ -416,7 +416,6 @@ void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
             clientKeys[connectionId].setUser(hostId, serviceId);
 
             const char *sessionKey = clientKeys[connectionId].newSessionKey();
-            size_t outLen = sizeof(loginResponsePacket.sessionKey);
 
             uint8_t *aesKey = clientKeys[connectionId].getAesKey();
             bool success = encryptSessionKey(loginResponsePacket.sessionKey, sessionKey, aesKey);
