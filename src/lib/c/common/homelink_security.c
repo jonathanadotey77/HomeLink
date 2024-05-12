@@ -19,7 +19,7 @@ const size_t AES_KEY_SIZE = 256U;
 const size_t SESSION_KEY_SIZE = 48U;
 
 static bool randInitialized = false;
-static EVP_PKEY *keypair = NULL;
+static EVP_PKEY_CTX *keygen = NULL;
 
 static volatile bool initialized = false;
 
@@ -58,29 +58,31 @@ bool initializeSecurity()
         return false;
     }
 
-    rc = EVP_PKEY_keygen(ctx, &keypair);
-    if (rc <= 0)
-    {
-        fprintf(stderr, "Could generate RSA keys\n");
-        EVP_PKEY_CTX_free(ctx);
-        return false;
-    }
-
-    EVP_PKEY_CTX_free(ctx);
-
+    keygen = ctx;
     initialized = true;
 
     return true;
 }
 
+bool generateRSAKeys(EVP_PKEY **keypair)
+{
+    int rc = EVP_PKEY_keygen(keygen, keypair);
+    if (rc <= 0)
+    {
+        fprintf(stderr, "Could generate RSA keys\n");
+        return false;
+    }
+    return true;
+}
+
 void cleanSecurity()
 {
-    EVP_PKEY_free(keypair);
+    EVP_PKEY_CTX_free(keygen);
     EVP_cleanup();
     ERR_free_strings();
 }
 
-void getRSAPublicKey(char *buffer, size_t *len)
+void getRSAPublicKey(const EVP_PKEY *keypair, char *buffer, size_t *len)
 {
     BIO *bio = BIO_new(BIO_s_mem());
 
@@ -97,12 +99,12 @@ void getRSAPublicKey(char *buffer, size_t *len)
     BIO_free_all(bio);
 }
 
-void printRSAPublicKey()
+void printRSAPublicKey(const EVP_PKEY *keypair)
 {
     char key[512] = {0};
     size_t len = 0;
 
-    getRSAPublicKey(key, &len);
+    getRSAPublicKey(keypair, key, &len);
 
     printf("Key: %s\n", key);
     printf("Len: %d\n", (int)len);
@@ -241,9 +243,9 @@ bool aesDecrypt(uint8_t *out, int *outLen, const uint8_t *in, int inLen, const u
     return true;
 }
 
-bool rsaEncrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen, const char *rsaPublicKey)
+bool rsaEncrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen, const char *key)
 {
-    BIO *bio = BIO_new_mem_buf(rsaPublicKey, strlen(rsaPublicKey) + 1);
+    BIO *bio = BIO_new_mem_buf(key, strlen(key) + 1);
     EVP_PKEY *publicKey = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
 
     EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(publicKey, NULL);
@@ -290,32 +292,13 @@ bool rsaEncrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen, c
     return true;
 }
 
-bool rsaDecrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen, const char *rsaPublicKey)
+bool rsaDecrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen, EVP_PKEY *key)
 {
-    EVP_PKEY_CTX *ctx = NULL;
-    if (rsaPublicKey == NULL)
+    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(key, NULL);
+    if (ctx == NULL)
     {
-        ctx = EVP_PKEY_CTX_new(keypair, NULL);
-        if (ctx == NULL)
-        {
-            fprintf(stderr, "Could not create ctx in rsaDecrypt()\n");
-            return false;
-        }
-    }
-    else
-    {
-        BIO *bio = BIO_new_mem_buf(rsaPublicKey, -1);
-        EVP_PKEY *publicKey = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
-
-        EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(publicKey, NULL);
-        if (ctx == NULL)
-        {
-            fprintf(stderr, "Could not create ctx in rsaDecrypt()\n");
-            EVP_PKEY_free(publicKey);
-            return false;
-        }
-
-        BIO_free_all(bio);
+        fprintf(stderr, "Could not create ctx in rsaDecrypt()\n");
+        return false;
     }
 
     int rc = 0;

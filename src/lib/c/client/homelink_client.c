@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
+#include <openssl/evp.h>
 #include <poll.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -25,6 +26,7 @@ typedef struct HomeLinkClient
     uint16_t serverPort;
     char serverPublicKey[512];
     char clientPublicKey[512];
+    EVP_PKEY *keypair;
     uint8_t aesKey[32];
     char hostId[33];
     char serviceId[33];
@@ -245,15 +247,15 @@ HomeLinkClient *HomeLinkClient__create(const char *hostId, const char *serviceId
         return NULL;
     }
 
-    if (!initializeSecurity())
-    {
-        return NULL;
-    }
-
     HomeLinkClient *client = (HomeLinkClient *)calloc(1, sizeof(HomeLinkClient));
     if (client == NULL)
     {
         fprintf(stderr, "calloc() failed\n");
+        return NULL;
+    }
+
+    if (!generateRSAKeys(&client->keypair))
+    {
         return NULL;
     }
 
@@ -274,8 +276,8 @@ HomeLinkClient *HomeLinkClient__create(const char *hostId, const char *serviceId
     if (client->asyncFileSocket < 0)
     {
         fprintf(stderr, "socket() failed [%d]\n", errno);
+        EVP_PKEY_free(client->keypair);
         free(client);
-        cleanSecurity();
         return NULL;
     }
 
@@ -289,15 +291,16 @@ HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, 
         return NULL;
     }
 
-    if (!initializeSecurity())
-    {
-        return NULL;
-    }
-
     HomeLinkClient *client = (HomeLinkClient *)calloc(1, sizeof(HomeLinkClient));
     if (client == NULL)
     {
         fprintf(stderr, "calloc() failed\n");
+        return NULL;
+    }
+
+    if (!generateRSAKeys(&client->keypair))
+    {
+        free(client);
         return NULL;
     }
 
@@ -318,8 +321,8 @@ HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, 
             if (field == NULL || strlen(field) == 0)
             {
                 fprintf(stderr, "Field for %s cannot be empty\n", token);
+                EVP_PKEY_free(client->keypair);
                 free(client);
-                cleanSecurity();
                 return NULL;
             }
             strncpy(client->hostId, field, sizeof(client->hostId) - 1);
@@ -330,8 +333,8 @@ HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, 
             if (field == NULL || strlen(field) == 0)
             {
                 fprintf(stderr, "Field for %s cannot be empty\n", token);
+                EVP_PKEY_free(client->keypair);
                 free(client);
-                cleanSecurity();
                 return NULL;
             }
 
@@ -343,8 +346,8 @@ HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, 
             if (field == NULL || strlen(field) == 0)
             {
                 fprintf(stderr, "Field for %s cannot be empty\n", token);
+                EVP_PKEY_free(client->keypair);
                 free(client);
-                cleanSecurity();
                 return NULL;
             }
 
@@ -353,8 +356,8 @@ HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, 
                 if (!isdigit(*p))
                 {
                     fprintf(stderr, "Invalid value for %s\n", token);
+                    EVP_PKEY_free(client->keypair);
                     free(client);
-                    cleanSecurity();
                     return NULL;
                 }
             }
@@ -363,8 +366,8 @@ HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, 
             if (i == 0 || i >= UINT16_MAX)
             {
                 fprintf(stderr, "Invalid value for %s\n", token);
+                EVP_PKEY_free(client->keypair);
                 free(client);
-                cleanSecurity();
                 return NULL;
             }
 
@@ -375,22 +378,22 @@ HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, 
     if (client->hostId[0] == 0)
     {
         fprintf(stderr, "--host-id is a required argument for client intialization\n");
+        EVP_PKEY_free(client->keypair);
         free(client);
-        cleanSecurity();
         return NULL;
     }
     if (client->serverAddressStr[0] == 0)
     {
         fprintf(stderr, "--server-address is a required argument for client intialization\n");
+        EVP_PKEY_free(client->keypair);
         free(client);
-        cleanSecurity();
         return NULL;
     }
     if (client->serverPort == 0)
     {
         fprintf(stderr, "--server-port is a required argument for client intialization\n");
+        EVP_PKEY_free(client->keypair);
         free(client);
-        cleanSecurity();
         return NULL;
     }
 
@@ -409,8 +412,8 @@ HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, 
     if (client->asyncFileSocket < 0)
     {
         fprintf(stderr, "socket() failed [%d]\n", errno);
+        EVP_PKEY_free(client->keypair);
         free(client);
-        cleanSecurity();
         return NULL;
     }
 
@@ -441,7 +444,7 @@ bool HomeLinkClient__fetchKeys(HomeLinkClient *client)
     uint32_t connectionId = 0;
 
     size_t clientPublicKeyLen = 0;
-    getRSAPublicKey(client->clientPublicKey, &clientPublicKeyLen);
+    getRSAPublicKey(client->keypair, client->clientPublicKey, &clientPublicKeyLen);
 
     keyRequestPacket.packetType = e_KeyRequest;
     memcpy(keyRequestPacket.rsaPublicKey, client->clientPublicKey, sizeof(keyRequestPacket.rsaPublicKey));
@@ -488,7 +491,7 @@ bool HomeLinkClient__fetchKeys(HomeLinkClient *client)
 
         uint8_t aesKey[256];
         size_t len = sizeof(aesKey);
-        rsaDecrypt(aesKey, &len, keyResponsePacket.aesKey, sizeof(keyResponsePacket.aesKey), NULL);
+        rsaDecrypt(aesKey, &len, keyResponsePacket.aesKey, sizeof(keyResponsePacket.aesKey), client->keypair);
         memcpy(client->aesKey, aesKey, 32);
 
         memset(aesKey, 0, sizeof(aesKey));
@@ -1004,7 +1007,7 @@ void HomeLinkClient__delete(HomeLinkClient **client)
         pthread_join((*client)->asyncFileThreadId, NULL);
     }
     memset((*client)->sessionKey, 0, sizeof((*client)->sessionKey));
-    cleanSecurity();
+    EVP_PKEY_free((*client)->keypair);
     free(*client);
     *client = NULL;
 }

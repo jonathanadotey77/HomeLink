@@ -46,6 +46,8 @@ AsyncThreadPool *asyncThreadPool = NULL;
 FileQueue *fileQueue = NULL;
 LoginSystem *loginSystem = NULL;
 
+EVP_PKEY *keypair = NULL;
+
 typedef struct ClientThreadArgs
 {
     int sd;
@@ -219,7 +221,7 @@ void handleKeyRequest(int sd, const KeyRequestPacket *keyRequestPacket)
 
     char publicKey[512] = {0};
     size_t len = sizeof(keyResponsePacket.rsaPublicKey);
-    getRSAPublicKey(publicKey, &len);
+    getRSAPublicKey(keypair, publicKey, &len);
     strncpy(keyResponsePacket.rsaPublicKey, publicKey, len);
 
     uint8_t *aesKey = clientKeys[keyRequestPacket->connectionId].getAesKey();
@@ -299,7 +301,7 @@ void handleRegisterRequest(int sd, const RegisterRequestPacket *registerRequestP
     uint8_t data[256] = {0};
     size_t dataLen = sizeof(data);
     bool decrypted = rsaDecrypt(data, &dataLen, registerRequestPacket->data,
-                                sizeof(registerRequestPacket->data), NULL);
+                                sizeof(registerRequestPacket->data), keypair);
 
     if (!decrypted)
     {
@@ -365,7 +367,7 @@ void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
     uint8_t data[256] = {0};
     size_t dataLen = sizeof(data);
     rsaDecrypt(data, &dataLen, loginRequestPacket->data,
-               sizeof(loginRequestPacket->data), NULL);
+               sizeof(loginRequestPacket->data), keypair);
 
     if (verbose)
     {
@@ -947,6 +949,8 @@ bool start()
 
     signal(SIGPIPE, SIG_IGN);
 
+    generateRSAKeys(&keypair);
+
     pthread_create(&dataThreadId, NULL, dataThread, NULL);
 
     return true;
@@ -957,6 +961,7 @@ void stop()
     close(serverSocket);
 
     loginSystem->stop();
+    EVP_PKEY_free(keypair);
 
     cleanSecurity();
 

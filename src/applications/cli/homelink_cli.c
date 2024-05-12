@@ -1,6 +1,7 @@
 #include <homelink_client.h>
 #include <homelink_misc.h>
 #include <homelink_packet.h>
+#include <homelink_security.h>
 
 #include <signal.h>
 #include <stdbool.h>
@@ -221,6 +222,11 @@ int main(int argc, char **argv)
         return success ? 0 : 1;
     }
 
+    if (!initializeSecurity())
+    {
+        return 1;
+    }
+
     HomeLinkConfig config;
     readConfig(&config, configFilePath);
 
@@ -255,6 +261,7 @@ int main(int argc, char **argv)
             printf("Registration failed\n");
         }
 
+        cleanSecurity();
         free(client);
 
         return 0;
@@ -279,6 +286,7 @@ int main(int argc, char **argv)
             printf("Registration failed\n");
         }
 
+        cleanSecurity();
         free(client);
 
         return 0;
@@ -296,6 +304,7 @@ int main(int argc, char **argv)
     HomeLinkClient__logout(client);
     HomeLinkClient__delete(&client);
     free(client);
+    cleanSecurity();
 
     return 0;
 }

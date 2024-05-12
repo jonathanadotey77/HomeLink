@@ -29,6 +29,7 @@ void shutdownDaemon()
     HomeLinkClient__logout(client);
     HomeLinkClient__delete(&client);
     free(client);
+    cleanSecurity();
 }
 
 void callback(const char *filename, void *context)
@@ -87,7 +88,6 @@ int main(int argc, char **argv)
 
     if (!HomeLinkClient__fetchKeys(client))
     {
-        cleanSecurity();
         shutdownDaemon();
         return 1;
     }
@@ -96,14 +96,12 @@ int main(int argc, char **argv)
     if (status == e_RegisterFailed)
     {
         fprintf(stderr, "Register failed\n");
-        cleanSecurity();
         shutdownDaemon();
     }
 
     if (HomeLinkClient__login(client, daemonPassword) != e_LoginSuccess)
     {
         fprintf(stderr, "Login failed\n");
-        cleanSecurity();
         shutdownDaemon();
         return 1;
     }

@@ -7,6 +7,7 @@ extern "C"
 #endif
 
 #include <arpa/inet.h>
+#include <openssl/evp.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <unistd.h>
@@ -26,11 +27,15 @@ extern "C"
     // Cleans security variables.
     extern void cleanSecurity();
 
+    // Generates an RSA-2048 keypair, initializeSecurity() must
+    // be called prior to this function.
+    extern bool generateRSAKeys(EVP_PKEY **keypair);
+
     // Writes the local RSA public key to a buffer, gives the length.
-    extern void getRSAPublicKey(char *buffer, size_t *len);
+    extern void getRSAPublicKey(const EVP_PKEY *keypair, char *buffer, size_t *len);
 
     // Prints the local RSA public key.
-    extern void printRSAPublicKey();
+    extern void printRSAPublicKey(const EVP_PKEY *keypair);
 
     // Writes n random bytes to a buffer.
     extern void randomBytes(uint8_t *buffer, int n);
@@ -54,10 +59,14 @@ extern "C"
 
     // Decrypts a buffer with RSA-2048 encryption with the given key.
     extern bool rsaDecrypt(uint8_t *out, size_t *outLen, const uint8_t *in, size_t inLen,
-                           const char *key);
+                           EVP_PKEY *key);
 
+    // Encrypts a session key with the given AES key, out and sessionKey
+    // must point to buffers of at least 48 bytes
     extern bool encryptSessionKey(uint8_t *out, const char *sessionKey, const uint8_t *aesKey);
 
+    // Decrypts a session key with the given AES key, sessionKey and in
+    // must point to buffers of at least 48 bytes
     extern bool decryptSessionKey(char *sessionKey, uint8_t *in, const uint8_t *aesKey);
 
     // Returns a heap allocated string that represents the hash of the password.
