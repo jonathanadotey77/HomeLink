@@ -8,7 +8,6 @@
 #include <string.h>
 
 const char *serviceId = "DAEMON";
-const char *daemonPassword = "PASSWORD717171717171717";
 char daemonDirectory[256] = {0};
 HomeLinkClient *client = NULL;
 
@@ -28,7 +27,6 @@ void shutdownDaemon()
 {
     HomeLinkClient__logout(client);
     HomeLinkClient__delete(&client);
-    free(client);
     cleanSecurity();
 }
 
@@ -91,6 +89,10 @@ int main(int argc, char **argv)
         shutdownDaemon();
         return 1;
     }
+
+    char daemonPassword[33];
+    memcpy(daemonPassword, getHostKey(), 32);
+    daemonPassword[32] = '\0';
 
     RegisterStatus status = HomeLinkClient__registerService(client, "DAEMON", daemonPassword);
     if (status == e_RegisterFailed)

@@ -3,11 +3,14 @@
 #include <homelink_packet.h>
 #include <homelink_security.h>
 
+#include <termios.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static const size_t MAX_PASSWORD_LEN = 1024;
 
 typedef struct HomeLinkConfig
 {
@@ -15,6 +18,31 @@ typedef struct HomeLinkConfig
     char serverAddress[65];
     char serverPort[33];
 } HomeLinkConfig;
+
+void getPassword(char *password)
+{
+    static struct termios old_terminal;
+    static struct termios new_terminal;
+
+    tcgetattr(STDIN_FILENO, &old_terminal);
+
+    new_terminal = old_terminal;
+    new_terminal.c_lflag &= ~(ECHO);
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &new_terminal);
+
+    if (fgets(password, 1023, stdin) == NULL)
+    {
+        password[0] = '\0';
+    }
+    else
+    {
+        password[strlen(password) - 1] = '\0';
+        password[1023] = '\0';
+    }
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &old_terminal);
+}
 
 bool readConfig(HomeLinkConfig *config, const char *configFilePath)
 {
@@ -122,6 +150,13 @@ bool editConfig(int argc, char **argv, const char *configFilePath)
     fclose(file);
 
     return true;
+}
+
+void shutdownCli(HomeLinkClient **client)
+{
+    HomeLinkClient__logout(*client);
+    HomeLinkClient__delete(client);
+    cleanSecurity();
 }
 
 void handleCommand(HomeLinkClient *client, int argc, char **argv)
@@ -269,9 +304,34 @@ int main(int argc, char **argv)
 
     if (argc == 3 && stringEqual("--register-service", argv[1]))
     {
+        char password1[8192];
+        char password2[8192];
+        memset(password1, 0, sizeof(password1));
+        memset(password2, 0, sizeof(password2));
+
         const char *serviceId = argv[2];
 
-        RegisterStatus status = HomeLinkClient__registerService(client, serviceId, "password");
+        printf("Enter password:\n");
+        getPassword(password1);
+        printf("Re-enter password:\n");
+        getPassword(password2);
+
+        if (!stringEqual(password1, password2))
+        {
+            printf("|%s %s\n", password1, password2);
+            printf("Passwords do not match!\n");
+            shutdownCli(&client);
+            return 0;
+        }
+
+        if (strlen(password1) >= MAX_PASSWORD_LEN)
+        {
+            printf("Password too long!\n");
+            shutdownCli(&client);
+            return 0;
+        }
+
+        RegisterStatus status = HomeLinkClient__registerService(client, serviceId, password1);
 
         if (status == e_RegisterSuccess)
         {
@@ -286,25 +346,42 @@ int main(int argc, char **argv)
             printf("Registration failed\n");
         }
 
-        cleanSecurity();
-        free(client);
+        if (status == e_RegisterSuccess || status == e_AlreadyExists)
+        {
+            HomeLinkClient__login(client, password1);
+        }
+
+        memset(password1, 0, sizeof(password1));
+        memset(password2, 0, sizeof(password2));
+
+        shutdownCli(&client);
 
         return 0;
     }
 
-    if (HomeLinkClient__login(client, "password") != e_LoginSuccess)
+    char *password = calloc(8192, sizeof(char));
+    printf("Enter password:\n");
+    getPassword(password);
+    if (strlen(password) > MAX_PASSWORD_LEN)
     {
-        fprintf(stderr, "Login failed\n");
-        free(client);
+        printf("Login failed\n");
+    }
+
+    if (HomeLinkClient__login(client, password) != e_LoginSuccess)
+    {
+        printf("Login failed\n");
+        memset(password, 0, 8192);
+        free(password);
+        shutdownCli(&client);
         return 1;
     }
 
+    memset(password, 0, 8192);
+    free(password);
+
     handleCommand(client, argc - 2, argv + 2);
 
-    HomeLinkClient__logout(client);
-    HomeLinkClient__delete(&client);
-    free(client);
-    cleanSecurity();
+    shutdownCli(&client);
 
     return 0;
 }

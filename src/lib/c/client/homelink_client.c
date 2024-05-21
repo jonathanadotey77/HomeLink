@@ -426,16 +426,10 @@ HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, 
 
     client->connectionId = 0;
 
-    client->asyncFileSocket = socket(AF_INET6, SOCK_STREAM, 0);
-    if (client->asyncFileSocket < 0)
-    {
-        fprintf(stderr, "socket() failed [%d]\n", errno);
-        EVP_PKEY_free(client->keypair);
-        free(client);
-        return NULL;
-    }
-
     client->asyncFileThreadId = 0;
+
+    client->syncSocket = -1;
+    client->asyncFileSocket = -1;
 
     client->active = true;
 
@@ -582,6 +576,12 @@ int HomeLinkClient__registerHost(const HomeLinkClient *client)
 
 int HomeLinkClient__registerService(const HomeLinkClient *client, const char *serviceId, const char *password)
 {
+    if (strlen(serviceId) > 32)
+    {
+        fprintf(stderr, "ServiceId must be at most 32 characters\n");
+        return e_RegisterFailed;
+    }
+
     char *hashedPassword = hashPassword(password, strlen(password));
     uint8_t passwordData[192] = {0};
 
@@ -649,6 +649,7 @@ int HomeLinkClient__registerService(const HomeLinkClient *client, const char *se
     memset(passwordData, 0, sizeof(passwordData));
     if (registerResponsePacket.status == e_AlreadyExists || registerResponsePacket.status == e_RegisterSuccess)
     {
+        memcpy((void *)client->serviceId, serviceId, 32);
         return registerResponsePacket.status;
     }
     else
@@ -750,7 +751,7 @@ void HomeLinkClient__logout(HomeLinkClient *client)
     bool status = encryptSessionKey(logoutPacket.sessionKey, client->sessionKey, client->aesKey);
     if (!status)
     {
-        fprintf(stderr, "rsaEncrypt() failed\n");
+        fprintf(stderr, "encryptSessionKey() failed\n");
         return;
     }
 
@@ -770,7 +771,6 @@ void HomeLinkClient__logout(HomeLinkClient *client)
     }
 
     client->active = false;
-    memset(client->sessionKey, 0, sizeof(client->sessionKey));
 }
 
 bool HomeLinkClient__readFileAsync(HomeLinkClient *client, const char *directory, HomeLinkAsyncReadFileCallback callback, void *context)
@@ -823,28 +823,14 @@ void HomeLinkClient__stopAsync(HomeLinkClient *client)
 
 char *HomeLinkClient__readFile(const HomeLinkClient *client, const char *directory)
 {
-    int sd = socket(AF_INET6, SOCK_STREAM, 0);
-    if (sd < 0)
-    {
-        fprintf(stderr, "socket() failed [%d]\n", errno);
-        return NULL;
-    }
 
-    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
-    {
-        fprintf(stderr, "connect() failed [%d]\n", errno);
-        close(sd);
-        return NULL;
-    }
-
-    HomeLinkClient__sendCommand(sd, client, "READ_FILE");
+    HomeLinkClient__sendCommand(client->syncSocket, client, "READ_FILE");
 
     uint8_t buffer[1] = {0};
-    bool status = recvBufferTcp(sd, buffer, 1);
+    bool status = recvBufferTcp(client->syncSocket, buffer, 1);
     if (!status)
     {
         fprintf(stderr, "recvBufferTcp() failed\n");
-        close(sd);
         return NULL;
     }
 
@@ -870,28 +856,13 @@ char *HomeLinkClient__readFile(const HomeLinkClient *client, const char *directo
         prefix[len++] = '/';
     }
 
-    char *filePath = recvFile(sd, prefix, client->aesKey, e_ClientRecv);
-
-    close(sd);
-    sd = socket(AF_INET6, SOCK_STREAM, 0);
-    if (sd < 0)
-    {
-        fprintf(stderr, "socket() failed\n");
-        exit(1);
-    }
+    char *filePath = recvFile(client->syncSocket, prefix, client->aesKey, e_ClientRecv);
 
     return filePath;
 }
 
 bool HomeLinkClient__writeFile(const HomeLinkClient *client, const char *destinationHostId, const char *destinationServiceId, const char *localPath, const char *remotePath)
 {
-    int sd = socket(AF_INET6, SOCK_STREAM, 0);
-    if (sd < 0)
-    {
-        fprintf(stderr, "socket() failed [%d]\n", errno);
-        return false;
-    }
-
     char command[168] = {0};
 
     struct stat st;
@@ -900,7 +871,6 @@ bool HomeLinkClient__writeFile(const HomeLinkClient *client, const char *destina
     if (rc < 0)
     {
         fprintf(stderr, "stat() failed, file may not exist\n");
-        close(sd);
         return false;
     }
 
@@ -908,26 +878,18 @@ bool HomeLinkClient__writeFile(const HomeLinkClient *client, const char *destina
 
     snprintf(command, sizeof(command) - 1, "WRITE_FILE %s %s %s %llu", destinationHostId, destinationServiceId, remotePath, (unsigned long long)fileSize);
 
-    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
-    {
-        fprintf(stderr, "connect() failed [%d]\n", errno);
-        close(sd);
-        return false;
-    }
+    HomeLinkClient__sendCommand(client->syncSocket, client, command);
 
-    HomeLinkClient__sendCommand(sd, client, command);
-
-    bool status = sendFile(sd, localPath, remotePath, client->aesKey, 0);
+    bool status = sendFile(client->syncSocket, localPath, remotePath, client->aesKey, 0);
 
     memset(&command, 0, sizeof(command));
-
-    close(sd);
 
     return status;
 }
 
 void HomeLinkClient__delete(HomeLinkClient **client)
 {
+    sleep(1);
     if ((*client)->syncSocket < 0)
     {
         close((*client)->syncSocket);
@@ -941,8 +903,9 @@ void HomeLinkClient__delete(HomeLinkClient **client)
     {
         pthread_join((*client)->asyncFileThreadId, NULL);
     }
-    memset((*client)->sessionKey, 0, sizeof((*client)->sessionKey));
+
     EVP_PKEY_free((*client)->keypair);
+    memset(*client, 0, HomeLinkClient_SIZE);
     free(*client);
     *client = NULL;
 }

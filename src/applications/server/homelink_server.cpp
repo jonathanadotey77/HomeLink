@@ -169,7 +169,13 @@ bool validateClient(uint32_t connectionId, uint8_t *encryptedSessionKey)
             }
             else
             {
-                printf("Invalid: %s\n", sessionKey);
+                const char *extra = "";
+                if (strlen(sessionKey) == 0)
+                {
+                    extra = " {empty session key}";
+                }
+
+                printf("Invalid session key%s\n", extra);
             }
         }
     }
@@ -179,7 +185,7 @@ bool validateClient(uint32_t connectionId, uint8_t *encryptedSessionKey)
     return success;
 }
 
-void handleConnectionRequest(int sd, const ConnectionRequestPacket *connectionRequestPacket)
+void handleConnectionRequest(const int sd, const ConnectionRequestPacket *connectionRequestPacket, uint32_t *connectionId)
 {
     {
         int idx = sizeof(connectionRequestPacket->rsaPublicKey) - 1;
@@ -211,13 +217,18 @@ void handleConnectionRequest(int sd, const ConnectionRequestPacket *connectionRe
 
     if (verbose)
     {
-        printf("Key request %s\n", success ? "succeeded" : "failed");
+        printf("Connection request %s\n", success ? "succeeded" : "failed");
     }
 
     ConnectionResponsePacket connectionResponsePacket;
     memset(&connectionResponsePacket, 0, sizeof(connectionResponsePacket));
     connectionResponsePacket.packetType = e_ConnectionResponse;
     connectionResponsePacket.success = success ? 1 : 0;
+
+    if (success)
+    {
+        *connectionId = connectionRequestPacket->connectionId;
+    }
 
     char publicKey[512] = {0};
     size_t len = sizeof(connectionResponsePacket.rsaPublicKey);
@@ -239,17 +250,17 @@ void handleConnectionRequest(int sd, const ConnectionRequestPacket *connectionRe
     }
 }
 
-void handleRegisterRequest(int sd, const RegisterRequestPacket *registerRequestPacket)
+void handleRegisterRequest(const int sd, const RegisterRequestPacket *registerRequestPacket, const uint32_t connectionId)
 {
     if (verbose)
     {
         if (registerRequestPacket->registrationType == e_HostRegistration)
         {
-            printf("Register request received with {hostId} = {%s}\n", registerRequestPacket->hostId);
+            printf("{%lu} Register request received with {hostId} = {%s}\n", static_cast<unsigned long>(connectionId), registerRequestPacket->hostId);
         }
         else if (registerRequestPacket->registrationType == e_ServiceRegistration)
         {
-            printf("Register request received with {hostId, serviceID} = {%s, %s}\n", registerRequestPacket->hostId, registerRequestPacket->serviceId);
+            printf("{%lu} Register request received with {hostId, serviceID} = {%s, %s}\n", static_cast<unsigned long>(connectionId), registerRequestPacket->hostId, registerRequestPacket->serviceId);
         }
     }
 
@@ -257,7 +268,7 @@ void handleRegisterRequest(int sd, const RegisterRequestPacket *registerRequestP
     {
         if (verbose)
         {
-            printf("Register request received with invalid registration type\n");
+            printf("{%lu} Register request received with invalid registration type\n", static_cast<unsigned long>(connectionId));
         }
 
         memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
@@ -272,7 +283,7 @@ void handleRegisterRequest(int sd, const RegisterRequestPacket *registerRequestP
         {
             if (verbose)
             {
-                printf("Invalid hostId");
+                printf("{%lu} Invalid hostId", static_cast<unsigned long>(connectionId));
             }
 
             valid = false;
@@ -285,7 +296,7 @@ void handleRegisterRequest(int sd, const RegisterRequestPacket *registerRequestP
         {
             if (verbose)
             {
-                printf("Invalid serviceId");
+                printf("{%lu} Invalid serviceId", static_cast<unsigned long>(connectionId));
             }
 
             valid = false;
@@ -307,7 +318,7 @@ void handleRegisterRequest(int sd, const RegisterRequestPacket *registerRequestP
     {
         if (verbose)
         {
-            printf("Decryption failed\n");
+            printf("{%lu} Decryption failed\n", static_cast<unsigned long>(connectionId));
         }
 
         memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
@@ -343,7 +354,7 @@ void handleRegisterRequest(int sd, const RegisterRequestPacket *registerRequestP
 
     if (verbose)
     {
-        printf("Replying with status %d\n", static_cast<int>(status));
+        printf("{%lu} Replying with status %d\n", static_cast<unsigned long>(connectionId), static_cast<int>(status));
     }
     RegisterResponsePacket registerResponsePacket;
     registerResponsePacket.packetType = e_RegisterResponse;
@@ -355,14 +366,14 @@ void handleRegisterRequest(int sd, const RegisterRequestPacket *registerRequestP
     bool success = sendBufferTcp(sd, buffer, RegisterResponsePacket_SIZE);
     if (!success)
     {
-        fprintf(stderr, "sendBufferTcp() failed\n");
+        fprintf(stderr, "{%lu} sendBufferTcp() failed\n", static_cast<unsigned long>(connectionId));
     }
 
     memset(&registerResponsePacket, 0, sizeof(registerResponsePacket));
     memset(data, 0, sizeof(data));
 }
 
-void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
+void handleLoginRequest(const int sd, const LoginRequestPacket *loginRequestPacket, const uint32_t connectionId)
 {
     uint8_t data[256] = {0};
     size_t dataLen = sizeof(data);
@@ -371,16 +382,16 @@ void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
 
     if (verbose)
     {
-        printf("Login request received with {hostId, serviceID} = {%s, %s}\n",
-               loginRequestPacket->hostId, loginRequestPacket->serviceId);
+        printf("{%lu} Login request received with {hostId, serviceID} = {%s, %s}\n",
+               static_cast<unsigned long>(connectionId), loginRequestPacket->hostId, loginRequestPacket->serviceId);
     }
-    const uint32_t connectionId = loginRequestPacket->connectionId;
+    const uint32_t receivedConnectionId = loginRequestPacket->connectionId;
     clientKeysLock.lock();
-    if (clientKeys.find(connectionId) == clientKeys.end())
+    if (clientKeys.find(receivedConnectionId) == clientKeys.end())
     {
         if (verbose)
         {
-            printf("Invalid connectionId {%u}\n", connectionId);
+            printf("{%lu} Invalid connectionId {%u}\n", static_cast<unsigned long>(connectionId), receivedConnectionId);
         }
         return;
     }
@@ -397,15 +408,15 @@ void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
         {
             if (status == e_LoginSuccess)
             {
-                printf("Login success\n");
+                printf("{%lu} Login success\n", static_cast<unsigned long>(connectionId));
             }
             else if (status == e_LoginFailed)
             {
-                printf("Login failed\n");
+                printf("{%lu} Login failed\n", static_cast<unsigned long>(connectionId));
             }
             else if (status == e_NoSuchService)
             {
-                printf("No such service '%s'\n", serviceId);
+                printf("{%lu} No such service '%s'\n", static_cast<unsigned long>(connectionId), serviceId);
             }
         }
 
@@ -426,7 +437,7 @@ void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
             if (!success)
             {
                 clientKeysLock.unlock();
-                fprintf(stderr, "encryptSessionKey() failed\n");
+                fprintf(stderr, "{%lu} encryptSessionKey() failed\n", static_cast<unsigned long>(connectionId));
                 return;
             }
         }
@@ -441,7 +452,7 @@ void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
         bool success = sendBufferTcp(sd, buffer, LoginResponsePacket_SIZE);
         if (!success)
         {
-            fprintf(stderr, "sendBufferTcp() failed\n");
+            fprintf(stderr, "{%lu} sendBufferTcp() failed\n", static_cast<unsigned long>(connectionId));
         }
 
         memset(&loginResponsePacket, 0, sizeof(loginResponsePacket));
@@ -450,11 +461,11 @@ void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
     clientKeysLock.unlock();
 }
 
-bool handleLogout(LogoutPacket *logoutPacket)
+bool handleLogout(LogoutPacket *logoutPacket, const uint32_t connectionId)
 {
     if (verbose)
     {
-        printf("Logout packet received {%u}\n", logoutPacket->connectionId);
+        printf("{%lu} Logout packet received {%lu}\n", static_cast<unsigned long>(connectionId), (unsigned long)logoutPacket->connectionId);
     }
 
     if (validateClient(logoutPacket->connectionId, logoutPacket->sessionKey))
@@ -464,7 +475,7 @@ bool handleLogout(LogoutPacket *logoutPacket)
         {
             const std::string &hostId = clientKeys[logoutPacket->connectionId].getHostId();
             const std::string &serviceId = clientKeys[logoutPacket->connectionId].getServiceId();
-            printf("Logout success {%s | %s}\n", hostId.c_str(), serviceId.c_str());
+            printf("{%lu} Logout success {%s | %s}\n", static_cast<unsigned long>(connectionId), hostId.c_str(), serviceId.c_str());
 
             asyncThreadPool->removeService(hostId, serviceId, e_AnyEvent);
         }
@@ -477,7 +488,7 @@ bool handleLogout(LogoutPacket *logoutPacket)
     return false;
 }
 
-void handleReadFileCommand(int sd, const std::string &hostId, const std::string &serviceId, const uint8_t *aesKey)
+void handleReadFileCommand(const int sd, const std::string &hostId, const std::string &serviceId, const uint8_t *aesKey, const uint32_t connectionId)
 {
     std::string tempFilePath = fileQueue->nextFile(hostId, serviceId);
     if (tempFilePath.empty())
@@ -485,7 +496,7 @@ void handleReadFileCommand(int sd, const std::string &hostId, const std::string 
         uint8_t buffer[1] = {0};
         if (!sendBufferTcp(sd, buffer, 1))
         {
-            fprintf(stderr, "Could not send initial response for READ_FILE\n");
+            fprintf(stderr, "{%lu} Could not send initial response for READ_FILE\n", static_cast<unsigned long>(connectionId));
         }
         return;
     }
@@ -494,7 +505,7 @@ void handleReadFileCommand(int sd, const std::string &hostId, const std::string 
         uint8_t buffer[1] = {1};
         if (!sendBufferTcp(sd, buffer, 1))
         {
-            fprintf(stderr, "Could not send initial response for READ_FILE\n");
+            fprintf(stderr, "{%lu} Could not send initial response for READ_FILE\n", static_cast<unsigned long>(connectionId));
             return;
         }
     }
@@ -533,13 +544,13 @@ void handleReadFileCommand(int sd, const std::string &hostId, const std::string 
     {
         if (verbose)
         {
-            printf("File read succeeded\n");
+            printf("{%lu} File read succeeded\n", static_cast<unsigned long>(connectionId));
         }
 
         if (verbose)
         {
-            printf("Clearing %s from file queue {%s | %s}\n",
-                   tempFilename.c_str(), hostId.c_str(), serviceId.c_str());
+            printf("{%lu} Clearing %s from file queue {%s | %s}\n",
+                   static_cast<unsigned long>(connectionId), tempFilename.c_str(), hostId.c_str(), serviceId.c_str());
         }
         fileQueue->pullFile(tempFilePath);
     }
@@ -547,13 +558,13 @@ void handleReadFileCommand(int sd, const std::string &hostId, const std::string 
     {
         if (verbose)
         {
-            printf("Failed to send file\n");
+            printf("{%lu} Failed to send file\n", static_cast<unsigned long>(connectionId));
         }
     }
 }
 
-void handleWriteFileCommand(int sd, const std::string &destinationHostId, const std::string &destinationServiceId,
-                            const std::string &filePath, const uint8_t *aesKey)
+void handleWriteFileCommand(const int sd, const std::string &destinationHostId, const std::string &destinationServiceId,
+                            const std::string &filePath, const uint8_t *aesKey, const uint32_t connectionId)
 {
     std::string tempFileFolder = TEMP_FILES_PATH + "/" + destinationHostId +
                                  "/" + destinationServiceId + "/";
@@ -591,7 +602,7 @@ void handleWriteFileCommand(int sd, const std::string &destinationHostId, const 
 
     if (verbose)
     {
-        printf("Writing to %s\n", tempFilePath.c_str());
+        printf("{%lu} Writing to %s\n", static_cast<unsigned long>(connectionId), tempFilePath.c_str());
     }
 
     fs::create_directories(tempFileFolder);
@@ -602,7 +613,7 @@ void handleWriteFileCommand(int sd, const std::string &destinationHostId, const 
     {
         if (verbose)
         {
-            printf("File '%s' received successfully\n", filename);
+            printf("{%lu} File '%s' received successfully\n", static_cast<unsigned long>(connectionId), filename);
         }
         int32_t tag = 0;
         fileQueue->pushFile(destinationHostId, destinationServiceId,
@@ -614,18 +625,18 @@ void handleWriteFileCommand(int sd, const std::string &destinationHostId, const 
     {
         if (verbose)
         {
-            printf("Failed to received file\n");
+            printf("{%lu} Failed to received file\n", static_cast<unsigned long>(connectionId));
         }
     }
 }
 
-void handleCommand(int sd, CommandPacket *commandPacket)
+void handleCommand(const int sd, CommandPacket *commandPacket, const uint32_t connectionId)
 {
     if (!validateClient(commandPacket->connectionId, commandPacket->sessionKey))
     {
         if (verbose)
         {
-            printf("Client validation failed\n");
+            printf("{%lu} Client validation failed\n", static_cast<unsigned long>(connectionId));
         }
 
         return;
@@ -647,7 +658,7 @@ void handleCommand(int sd, CommandPacket *commandPacket)
     {
         if (verbose)
         {
-            printf("Command decryption failed\n");
+            printf("{%lu} Command decryption failed\n", static_cast<unsigned long>(connectionId));
         }
 
         memset(aesKey, 0, AES_KEY_SIZE / 8);
@@ -670,12 +681,12 @@ void handleCommand(int sd, CommandPacket *commandPacket)
 
     if (verbose)
     {
-        printf("Recevied command: %s\n", commandStr + 32);
+        printf("{%lu} Recevied command: %s\n", static_cast<unsigned long>(connectionId), commandStr + 32);
     }
 
     if (command == "READ_FILE")
     {
-        handleReadFileCommand(sd, hostId, serviceId, aesKey);
+        handleReadFileCommand(sd, hostId, serviceId, aesKey, connectionId);
     }
     else if (command == "WRITE_FILE")
     {
@@ -698,7 +709,7 @@ void handleCommand(int sd, CommandPacket *commandPacket)
             return;
         }
 
-        handleWriteFileCommand(sd, destinationHostId, destinationServiceId, filePath, aesKey);
+        handleWriteFileCommand(sd, destinationHostId, destinationServiceId, filePath, aesKey, connectionId);
     }
 
     memset(aesKey, 0, AES_KEY_SIZE / 8);
@@ -736,14 +747,31 @@ void *clientThread(void *a)
     }
 
     uint8_t buffer[1024];
+    uint32_t connectionId = 0;
+
+    struct pollfd fds[1];
 
     while (!isStopped)
     {
+        fds[0].events = POLLIN;
+        fds[0].fd = sd;
+        fds[0].revents = 0;
+
+        int rc = poll(fds, 1, 3000);
+        if (rc < 0)
+        {
+            fprintf(stderr, "{%lu} poll() failed [%d]\n", static_cast<unsigned long>(connectionId), errno);
+        }
+        else if (rc == 0)
+        {
+            continue;
+        }
+
         // We check the first byte, which contains the packet type
         bool status = recvBufferTcp(sd, buffer, 1);
         if (!status)
         {
-            fprintf(stderr, "recvBufferTcp() failed\n");
+            fprintf(stderr, "{%lu} recvBufferTcp() failed here\n", static_cast<unsigned long>(connectionId));
             close(sd);
             return NULL;
         }
@@ -773,17 +801,17 @@ void *clientThread(void *a)
 
             if (verbose)
             {
-                printf("Connection request received with connection id {%d}\n", connectionRequestPacket.connectionId);
+                printf("Connection request received with connection id {%lu}\n", (unsigned long)connectionRequestPacket.connectionId);
             }
 
-            handleConnectionRequest(sd, &connectionRequestPacket);
+            handleConnectionRequest(sd, &connectionRequestPacket, &connectionId);
         }
         else if (packetType == e_RegisterRequest)
         {
             status = recvBufferTcp(sd, buffer + 1, RegisterRequestPacket_SIZE - 1);
             if (!status)
             {
-                fprintf(stderr, "recvBufferTcp() failed\n");
+                fprintf(stderr, "{%lu} recvBufferTcp() failed\n", static_cast<unsigned long>(connectionId));
                 close(sd);
                 return NULL;
             }
@@ -791,7 +819,7 @@ void *clientThread(void *a)
             RegisterRequestPacket registerRequestPacket;
             RegisterRequestPacket_deserialize(&registerRequestPacket, buffer);
 
-            handleRegisterRequest(sd, &registerRequestPacket);
+            handleRegisterRequest(sd, &registerRequestPacket, connectionId);
             memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
         }
         else if (packetType == e_LoginRequest)
@@ -799,7 +827,7 @@ void *clientThread(void *a)
             status = recvBufferTcp(sd, buffer + 1, LoginRequestPacket_SIZE - 1);
             if (!status)
             {
-                fprintf(stderr, "recvBufferTcp() failed\n");
+                fprintf(stderr, "{%lu} recvBufferTcp() failed\n", static_cast<unsigned long>(connectionId));
                 close(sd);
                 return NULL;
             }
@@ -807,7 +835,7 @@ void *clientThread(void *a)
             LoginRequestPacket loginRequestPacket;
             LoginRequestPacket_deserialize(&loginRequestPacket, buffer);
 
-            handleLoginRequest(sd, &loginRequestPacket);
+            handleLoginRequest(sd, &loginRequestPacket, connectionId);
             memset(&loginRequestPacket, 0, sizeof(loginRequestPacket));
         }
         else if (packetType == e_Logout)
@@ -815,7 +843,7 @@ void *clientThread(void *a)
             status = recvBufferTcp(sd, buffer + 1, LogoutPacket_SIZE - 1);
             if (!status)
             {
-                fprintf(stderr, "recvBufferTcp() failed\n");
+                fprintf(stderr, "{%lu} recvBufferTcp() failed\n", static_cast<unsigned long>(connectionId));
                 close(sd);
                 return NULL;
             }
@@ -823,7 +851,7 @@ void *clientThread(void *a)
             LogoutPacket logoutPacket;
             LogoutPacket_deserialize(&logoutPacket, buffer);
 
-            bool success = handleLogout(&logoutPacket);
+            bool success = handleLogout(&logoutPacket, connectionId);
             memset(&logoutPacket, 0, sizeof(logoutPacket));
 
             if (success)
@@ -836,7 +864,7 @@ void *clientThread(void *a)
             status = recvBufferTcp(sd, buffer + 1, AsyncListenRequestPacket_SIZE - 1);
             if (!status)
             {
-                fprintf(stderr, "recvBufferTcp() failed\n");
+                fprintf(stderr, "{%lu} recvBufferTcp() failed\n", static_cast<unsigned long>(connectionId));
                 close(sd);
                 return NULL;
             }
@@ -854,22 +882,30 @@ void *clientThread(void *a)
             status = recvBufferTcp(sd, buffer + 1, CommandPacket_SIZE - 1);
             if (!status)
             {
-                fprintf(stderr, "Failed to receive command\n");
+                fprintf(stderr, "{%lu} Failed to receive command\n", static_cast<unsigned long>(connectionId));
                 return NULL;
             }
 
             CommandPacket_deserialize(&commandPacket, buffer);
 
-            handleCommand(sd, &commandPacket);
+            handleCommand(sd, &commandPacket, connectionId);
         }
         else
         {
+            if (verbose)
+            {
+                printf("{%lu} Invalid packet type {%d}\n", static_cast<unsigned long>(connectionId), static_cast<int>(packetType));
+            }
             break;
         }
     }
 
     close(sd);
 
+    if (verbose)
+    {
+        printf("{%lu} Client sync thread terminated\n", (unsigned long)connectionId);
+    }
     return NULL;
 }
 
