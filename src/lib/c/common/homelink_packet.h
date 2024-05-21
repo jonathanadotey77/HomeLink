@@ -24,9 +24,9 @@ extern "C"
 
     typedef enum HomeLinkPacketType
     {
-        e_Ack = 1,
-        e_KeyRequest = 2,
-        e_KeyResponse = 3,
+        e_Ping = 1,
+        e_ConnectionRequest = 2,
+        e_ConnectionResponse = 3,
         e_Handshake = 4,
         e_Command = 5,
         e_LoginRequest = 6,
@@ -50,48 +50,44 @@ extern "C"
         e_AnyEvent = 255
     } AsyncEventType;
 
+    extern const char *getPacketStr(HomeLinkPacketType packetType);
+
     typedef struct PingPacket
     {
         uint8_t packetType;
         uint32_t value;
     } PingPacket;
+    extern const char *PingPacket_STR;
     extern const int32_t PingPacket_SIZE;
     extern void PingPacket_serialize(uint8_t *buffer, const PingPacket *packet);
     extern void PingPacket_deserialize(PingPacket *packet, const uint8_t *buffer);
 
-    typedef struct AckPacket
-    {
-        uint8_t packetType;
-        uint32_t value;
-    } AckPacket;
-    extern const int32_t AckPacket_SIZE;
-    extern void AckPacket_serialize(uint8_t *buffer, const AckPacket *packet);
-    extern void AckPacket_deserialize(AckPacket *packet, const uint8_t *buffer);
-
-    typedef struct KeyRequestPacket
+    typedef struct ConnectionRequestPacket
     {
         uint8_t packetType;
         uint32_t connectionId;
         char rsaPublicKey[512];
-    } KeyRequestPacket;
-    extern const int32_t KeyRequestPacket_SIZE;
-    extern void KeyRequestPacket_serialize(uint8_t *buffer,
-                                           const KeyRequestPacket *packet);
-    extern void KeyRequestPacket_deserialize(KeyRequestPacket *packet,
-                                             const uint8_t *buffer);
+    } ConnectionRequestPacket;
+    extern const char *ConnectionRequestPacket_STR;
+    extern const int32_t ConnectionRequestPacket_SIZE;
+    extern void ConnectionRequestPacket_serialize(uint8_t *buffer,
+                                                  const ConnectionRequestPacket *packet);
+    extern void ConnectionRequestPacket_deserialize(ConnectionRequestPacket *packet,
+                                                    const uint8_t *buffer);
 
-    typedef struct KeyResponsePacket
+    typedef struct ConnectionResponsePacket
     {
         uint8_t packetType;
         uint8_t success;
         char rsaPublicKey[512];
         uint8_t aesKey[256];
-    } KeyResponsePacket;
-    extern const int32_t KeyResponsePacket_SIZE;
-    extern void KeyResponsePacket_serialize(uint8_t *buffer,
-                                            const KeyResponsePacket *packet);
-    extern void KeyResponsePacket_deserialize(KeyResponsePacket *packet,
-                                              const uint8_t *buffer);
+    } ConnectionResponsePacket;
+    extern const char *ConnectionResponsePacket_STR;
+    extern const int32_t ConnectionResponsePacket_SIZE;
+    extern void ConnectionResponsePacket_serialize(uint8_t *buffer,
+                                                   const ConnectionResponsePacket *packet);
+    extern void ConnectionResponsePacket_deserialize(ConnectionResponsePacket *packet,
+                                                     const uint8_t *buffer);
 
     typedef struct CommandPacket
     {
@@ -100,6 +96,7 @@ extern "C"
         uint8_t sessionKey[80];
         uint8_t data[256];
     } CommandPacket;
+    extern const char *CommandPacket_STR;
     extern const int32_t CommandPacket_SIZE;
     extern void CommandPacket_serialize(uint8_t *buffer, const CommandPacket *packet);
     extern void CommandPacket_deserialize(CommandPacket *packet, const uint8_t *buffer);
@@ -112,6 +109,7 @@ extern "C"
         char serviceId[33];
         uint8_t data[256];
     } LoginRequestPacket;
+    extern const char *LoginRequestPacket_STR;
     extern const int32_t LoginRequestPacket_SIZE;
     extern void LoginRequestPacket_serialize(uint8_t *buffer,
                                              const LoginRequestPacket *packet);
@@ -124,6 +122,7 @@ extern "C"
         uint8_t status;
         uint8_t sessionKey[80];
     } LoginResponsePacket;
+    extern const char *LoginResponsePacket_STR;
     extern const int32_t LoginResponsePacket_SIZE;
     extern void LoginResponsePacket_serialize(uint8_t *buffer,
                                               const LoginResponsePacket *packet);
@@ -138,6 +137,7 @@ extern "C"
         char serviceId[33];
         uint8_t data[256];
     } RegisterRequestPacket;
+    extern const char *RegisterRequestPacket_STR;
     extern const int32_t RegisterRequestPacket_SIZE;
     extern void RegisterRequestPacket_serialize(uint8_t *buffer,
                                                 const RegisterRequestPacket *packet);
@@ -149,6 +149,7 @@ extern "C"
         uint8_t packetType;
         uint8_t status;
     } RegisterResponsePacket;
+    extern const char *RegisterResponsePacket_STR;
     extern const int32_t RegisterResponsePacket_SIZE;
     extern void RegisterResponsePacket_serialize(uint8_t *buffer,
                                                  const RegisterResponsePacket *packet);
@@ -161,6 +162,7 @@ extern "C"
         uint32_t connectionId;
         uint8_t sessionKey[80];
     } LogoutPacket;
+    extern const char *LogoutPacket_STR;
     extern const int32_t LogoutPacket_SIZE;
     extern void LogoutPacket_serialize(uint8_t *buffer, const LogoutPacket *packet);
     extern void LogoutPacket_deserialize(LogoutPacket *packet, const uint8_t *buffer);
@@ -172,6 +174,7 @@ extern "C"
         uint32_t connectionId;
         uint8_t sessionKey[80];
     } AsyncListenRequestPacket;
+    extern const char *AsyncListenRequestPacket_STR;
     extern const int32_t AsyncListenRequestPacket_SIZE;
     extern void AsyncListenRequestPacket_serialize(uint8_t *buffer, const AsyncListenRequestPacket *packet);
     extern void AsyncListenRequestPacket_deserialize(AsyncListenRequestPacket *packet, const uint8_t *buffer);
@@ -182,6 +185,7 @@ extern "C"
         uint8_t eventType;
         int32_t tag;
     } AsyncNotificationPacket;
+    extern const char *AsyncNotificationPacket_STR;
     extern const int32_t AsyncNotificationPacket_SIZE;
     extern void AsyncNotificationPacket_serialize(uint8_t *buffer, const AsyncNotificationPacket *packet);
     extern void AsyncNotificationPacket_deserialize(AsyncNotificationPacket *packet, const uint8_t *buffer);

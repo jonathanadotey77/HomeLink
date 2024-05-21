@@ -179,14 +179,14 @@ bool validateClient(uint32_t connectionId, uint8_t *encryptedSessionKey)
     return success;
 }
 
-void handleKeyRequest(int sd, const KeyRequestPacket *keyRequestPacket)
+void handleConnectionRequest(int sd, const ConnectionRequestPacket *connectionRequestPacket)
 {
     {
-        int idx = sizeof(keyRequestPacket->rsaPublicKey) - 1;
+        int idx = sizeof(connectionRequestPacket->rsaPublicKey) - 1;
         bool foundNullCharacter = false;
         while (idx >= 0)
         {
-            if (keyRequestPacket->rsaPublicKey[idx] == '\0')
+            if (connectionRequestPacket->rsaPublicKey[idx] == '\0')
             {
                 foundNullCharacter = true;
                 break;
@@ -207,32 +207,32 @@ void handleKeyRequest(int sd, const KeyRequestPacket *keyRequestPacket)
         }
     }
 
-    bool success = clientKeys.insert({keyRequestPacket->connectionId, KeySet(keyRequestPacket->rsaPublicKey, strlen(keyRequestPacket->rsaPublicKey))}).second;
+    bool success = clientKeys.insert({connectionRequestPacket->connectionId, KeySet(connectionRequestPacket->rsaPublicKey, strlen(connectionRequestPacket->rsaPublicKey))}).second;
 
     if (verbose)
     {
         printf("Key request %s\n", success ? "succeeded" : "failed");
     }
 
-    KeyResponsePacket keyResponsePacket;
-    memset(&keyResponsePacket, 0, sizeof(keyResponsePacket));
-    keyResponsePacket.packetType = e_KeyResponse;
-    keyResponsePacket.success = success ? 1 : 0;
+    ConnectionResponsePacket connectionResponsePacket;
+    memset(&connectionResponsePacket, 0, sizeof(connectionResponsePacket));
+    connectionResponsePacket.packetType = e_ConnectionResponse;
+    connectionResponsePacket.success = success ? 1 : 0;
 
     char publicKey[512] = {0};
-    size_t len = sizeof(keyResponsePacket.rsaPublicKey);
+    size_t len = sizeof(connectionResponsePacket.rsaPublicKey);
     getRSAPublicKey(keypair, publicKey, &len);
-    strncpy(keyResponsePacket.rsaPublicKey, publicKey, len);
+    strncpy(connectionResponsePacket.rsaPublicKey, publicKey, len);
 
-    uint8_t *aesKey = clientKeys[keyRequestPacket->connectionId].getAesKey();
-    rsaEncrypt(keyResponsePacket.aesKey, &len, aesKey, AES_KEY_SIZE / 8, keyRequestPacket->rsaPublicKey);
+    uint8_t *aesKey = clientKeys[connectionRequestPacket->connectionId].getAesKey();
+    rsaEncrypt(connectionResponsePacket.aesKey, &len, aesKey, AES_KEY_SIZE / 8, connectionRequestPacket->rsaPublicKey);
     memset(aesKey, 0, AES_KEY_SIZE / 8);
     delete[] aesKey;
 
-    uint8_t buffer[KeyResponsePacket_SIZE];
+    uint8_t buffer[ConnectionResponsePacket_SIZE];
 
-    KeyResponsePacket_serialize(buffer, &keyResponsePacket);
-    bool status = sendBufferTcp(sd, buffer, KeyResponsePacket_SIZE);
+    ConnectionResponsePacket_serialize(buffer, &connectionResponsePacket);
+    bool status = sendBufferTcp(sd, buffer, ConnectionResponsePacket_SIZE);
     if (!status)
     {
         fprintf(stderr, "sendBufferTcp() failed\n");
@@ -349,10 +349,10 @@ void handleRegisterRequest(int sd, const RegisterRequestPacket *registerRequestP
     registerResponsePacket.packetType = e_RegisterResponse;
     registerResponsePacket.status = static_cast<uint8_t>(status);
 
-    uint8_t buffer[KeyResponsePacket_SIZE];
+    uint8_t buffer[RegisterResponsePacket_SIZE];
     RegisterResponsePacket_serialize(buffer, &registerResponsePacket);
 
-    bool success = sendBufferTcp(sd, buffer, KeyResponsePacket_SIZE);
+    bool success = sendBufferTcp(sd, buffer, RegisterResponsePacket_SIZE);
     if (!success)
     {
         fprintf(stderr, "sendBufferTcp() failed\n");
@@ -450,7 +450,7 @@ void handleLoginRequest(int sd, const LoginRequestPacket *loginRequestPacket)
     clientKeysLock.unlock();
 }
 
-void handleLogout(LogoutPacket *logoutPacket)
+bool handleLogout(LogoutPacket *logoutPacket)
 {
     if (verbose)
     {
@@ -470,7 +470,11 @@ void handleLogout(LogoutPacket *logoutPacket)
         }
         clientKeys.erase(logoutPacket->connectionId);
         clientKeysLock.unlock();
+
+        return true;
     }
+
+    return false;
 }
 
 void handleReadFileCommand(int sd, const std::string &hostId, const std::string &serviceId, const uint8_t *aesKey)
@@ -733,20 +737,10 @@ void *clientThread(void *a)
 
     uint8_t buffer[1024];
 
-    // We check the first byte, which contains the packet type
-    bool status = recvBufferTcp(sd, buffer, 1);
-    if (!status)
+    while (!isStopped)
     {
-        fprintf(stderr, "recvBufferTcp() failed\n");
-        close(sd);
-        return NULL;
-    }
-
-    HomeLinkPacketType packetType = static_cast<HomeLinkPacketType>(buffer[0]);
-
-    if (packetType == e_KeyRequest)
-    {
-        status = recvBufferTcp(sd, buffer + 1, KeyRequestPacket_SIZE - 1);
+        // We check the first byte, which contains the packet type
+        bool status = recvBufferTcp(sd, buffer, 1);
         if (!status)
         {
             fprintf(stderr, "recvBufferTcp() failed\n");
@@ -754,102 +748,124 @@ void *clientThread(void *a)
             return NULL;
         }
 
-        KeyRequestPacket keyRequestPacket;
-        KeyRequestPacket_deserialize(&keyRequestPacket, buffer);
-
+        HomeLinkPacketType packetType = static_cast<HomeLinkPacketType>(buffer[0]);
         if (verbose)
         {
-            printf("Key request received from %s with connection id {%d}\n", sourceAddressStr, keyRequestPacket.connectionId);
+            const char *packetStr = getPacketStr(packetType);
+            if (packetStr[0] != '<')
+            {
+                printf("Received %sPacket from %s\n", packetStr, sourceAddressStr);
+            }
         }
 
-        handleKeyRequest(sd, &keyRequestPacket);
-    }
-    else if (packetType == e_RegisterRequest)
-    {
-        status = recvBufferTcp(sd, buffer + 1, RegisterRequestPacket_SIZE - 1);
-        if (!status)
+        if (packetType == e_ConnectionRequest)
         {
-            fprintf(stderr, "recvBufferTcp() failed\n");
-            close(sd);
+            status = recvBufferTcp(sd, buffer + 1, ConnectionRequestPacket_SIZE - 1);
+            if (!status)
+            {
+                fprintf(stderr, "recvBufferTcp() failed\n");
+                close(sd);
+                return NULL;
+            }
+
+            ConnectionRequestPacket connectionRequestPacket;
+            ConnectionRequestPacket_deserialize(&connectionRequestPacket, buffer);
+
+            if (verbose)
+            {
+                printf("Connection request received with connection id {%d}\n", connectionRequestPacket.connectionId);
+            }
+
+            handleConnectionRequest(sd, &connectionRequestPacket);
+        }
+        else if (packetType == e_RegisterRequest)
+        {
+            status = recvBufferTcp(sd, buffer + 1, RegisterRequestPacket_SIZE - 1);
+            if (!status)
+            {
+                fprintf(stderr, "recvBufferTcp() failed\n");
+                close(sd);
+                return NULL;
+            }
+
+            RegisterRequestPacket registerRequestPacket;
+            RegisterRequestPacket_deserialize(&registerRequestPacket, buffer);
+
+            handleRegisterRequest(sd, &registerRequestPacket);
+            memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
+        }
+        else if (packetType == e_LoginRequest)
+        {
+            status = recvBufferTcp(sd, buffer + 1, LoginRequestPacket_SIZE - 1);
+            if (!status)
+            {
+                fprintf(stderr, "recvBufferTcp() failed\n");
+                close(sd);
+                return NULL;
+            }
+
+            LoginRequestPacket loginRequestPacket;
+            LoginRequestPacket_deserialize(&loginRequestPacket, buffer);
+
+            handleLoginRequest(sd, &loginRequestPacket);
+            memset(&loginRequestPacket, 0, sizeof(loginRequestPacket));
+        }
+        else if (packetType == e_Logout)
+        {
+            status = recvBufferTcp(sd, buffer + 1, LogoutPacket_SIZE - 1);
+            if (!status)
+            {
+                fprintf(stderr, "recvBufferTcp() failed\n");
+                close(sd);
+                return NULL;
+            }
+
+            LogoutPacket logoutPacket;
+            LogoutPacket_deserialize(&logoutPacket, buffer);
+
+            bool success = handleLogout(&logoutPacket);
+            memset(&logoutPacket, 0, sizeof(logoutPacket));
+
+            if (success)
+            {
+                break;
+            }
+        }
+        else if (packetType == e_AsyncListenRequest)
+        {
+            status = recvBufferTcp(sd, buffer + 1, AsyncListenRequestPacket_SIZE - 1);
+            if (!status)
+            {
+                fprintf(stderr, "recvBufferTcp() failed\n");
+                close(sd);
+                return NULL;
+            }
+
+            AsyncListenRequestPacket asyncListenRequestPacket;
+            AsyncListenRequestPacket_deserialize(&asyncListenRequestPacket, buffer);
+
+            handleAsyncListenRequest(sd, &asyncListenRequestPacket);
             return NULL;
         }
-
-        RegisterRequestPacket registerRequestPacket;
-        RegisterRequestPacket_deserialize(&registerRequestPacket, buffer);
-
-        handleRegisterRequest(sd, &registerRequestPacket);
-        memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
-    }
-    else if (packetType == e_LoginRequest)
-    {
-        status = recvBufferTcp(sd, buffer + 1, LoginRequestPacket_SIZE - 1);
-        if (!status)
+        else if (packetType == e_Command)
         {
-            fprintf(stderr, "recvBufferTcp() failed\n");
-            close(sd);
-            return NULL;
+            CommandPacket commandPacket;
+            memset(&commandPacket, 0, sizeof(commandPacket));
+            status = recvBufferTcp(sd, buffer + 1, CommandPacket_SIZE - 1);
+            if (!status)
+            {
+                fprintf(stderr, "Failed to receive command\n");
+                return NULL;
+            }
+
+            CommandPacket_deserialize(&commandPacket, buffer);
+
+            handleCommand(sd, &commandPacket);
         }
-
-        LoginRequestPacket loginRequestPacket;
-        LoginRequestPacket_deserialize(&loginRequestPacket, buffer);
-
-        handleLoginRequest(sd, &loginRequestPacket);
-        memset(&loginRequestPacket, 0, sizeof(loginRequestPacket));
-    }
-    else if (packetType == e_Logout)
-    {
-        status = recvBufferTcp(sd, buffer + 1, LogoutPacket_SIZE - 1);
-        if (!status)
+        else
         {
-            fprintf(stderr, "recvBufferTcp() failed\n");
-            close(sd);
-            return NULL;
+            break;
         }
-
-        LogoutPacket logoutPacket;
-        LogoutPacket_deserialize(&logoutPacket, buffer);
-
-        handleLogout(&logoutPacket);
-        memset(&logoutPacket, 0, sizeof(logoutPacket));
-    }
-    else if (packetType == e_AsyncListenRequest)
-    {
-        status = recvBufferTcp(sd, buffer + 1, AsyncListenRequestPacket_SIZE - 1);
-        if (!status)
-        {
-            fprintf(stderr, "recvBufferTcp() failed\n");
-            close(sd);
-            return NULL;
-        }
-
-        AsyncListenRequestPacket asyncListenRequestPacket;
-        AsyncListenRequestPacket_deserialize(&asyncListenRequestPacket, buffer);
-
-        handleAsyncListenRequest(sd, &asyncListenRequestPacket);
-        return NULL;
-    }
-    else if (packetType == e_Command)
-    {
-        if (verbose)
-        {
-            printf("Received command packet from %s\n", sourceAddressStr);
-        }
-
-        CommandPacket commandPacket;
-        memset(&commandPacket, 0, sizeof(commandPacket));
-        status = recvBufferTcp(sd, buffer + 1, CommandPacket_SIZE - 1);
-        if (!status)
-        {
-            fprintf(stderr, "Failed to receive command\n");
-            return NULL;
-        }
-
-        CommandPacket_deserialize(&commandPacket, buffer);
-
-        handleCommand(sd, &commandPacket);
-    }
-    else
-    {
     }
 
     close(sd);

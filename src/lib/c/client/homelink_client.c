@@ -17,8 +17,6 @@
 #include <string.h>
 #include <sys/stat.h>
 
-static const int RETRY_COUNT = 5;
-
 typedef struct HomeLinkClient
 {
     char serverAddressStr[64];
@@ -33,6 +31,7 @@ typedef struct HomeLinkClient
     uint32_t connectionId;
     char sessionKey[48];
     volatile bool active;
+    int syncSocket;
     int asyncFileSocket;
     pthread_t asyncFileThreadId;
 } HomeLinkClient;
@@ -295,14 +294,10 @@ HomeLinkClient *HomeLinkClient__create(const char *hostId, const char *serviceId
     client->serverAddress.sin6_flowinfo = 0;
     client->serverAddress.sin6_scope_id = 0;
 
-    client->asyncFileSocket = socket(AF_INET6, SOCK_STREAM, 0);
-    if (client->asyncFileSocket < 0)
-    {
-        fprintf(stderr, "socket() failed [%d]\n", errno);
-        EVP_PKEY_free(client->keypair);
-        free(client);
-        return NULL;
-    }
+    client->syncSocket = -1;
+    client->asyncFileSocket = -1;
+
+    client->active = true;
 
     return client;
 }
@@ -442,187 +437,142 @@ HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, 
 
     client->asyncFileThreadId = 0;
 
+    client->active = true;
+
     return client;
 }
 
 bool HomeLinkClient__connect(HomeLinkClient *client)
 {
-    if (client == NULL)
-    {
-    }
-    return true;
-}
-
-bool HomeLinkClient__fetchKeys(HomeLinkClient *client)
-{
-    int sd = socket(AF_INET6, SOCK_STREAM, 0);
-    if (sd < 0)
+    client->syncSocket = socket(AF_INET6, SOCK_STREAM, 0);
+    if (client->syncSocket < 0)
     {
         fprintf(stderr, "socket() failed [%d]\n", errno);
         return false;
     }
 
-    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
+    if (connect(client->syncSocket, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
     {
         fprintf(stderr, "connect() failed [%d]\n", errno);
-        close(sd);
+        close(client->syncSocket);
         return false;
     }
 
-    KeyRequestPacket keyRequestPacket;
-    memset(&keyRequestPacket, 0, sizeof(keyRequestPacket));
+    ConnectionRequestPacket connectionRequestPacket;
+    memset(&connectionRequestPacket, 0, sizeof(connectionRequestPacket));
 
     uint32_t connectionId = 0;
 
     size_t clientPublicKeyLen = 0;
     getRSAPublicKey(client->keypair, client->clientPublicKey, &clientPublicKeyLen);
 
-    keyRequestPacket.packetType = e_KeyRequest;
-    memcpy(keyRequestPacket.rsaPublicKey, client->clientPublicKey, sizeof(keyRequestPacket.rsaPublicKey));
+    connectionRequestPacket.packetType = e_ConnectionRequest;
+    memcpy(connectionRequestPacket.rsaPublicKey, client->clientPublicKey, sizeof(connectionRequestPacket.rsaPublicKey));
 
     uint8_t buffer[1024] = {0};
 
-    for (int i = 0; i < RETRY_COUNT; ++i)
+    randomBytes((uint8_t *)&connectionId, sizeof(connectionId));
+    connectionRequestPacket.connectionId = connectionId;
+    ConnectionRequestPacket_serialize(buffer, &connectionRequestPacket);
+
+    bool status = sendBufferTcp(client->syncSocket, buffer, 1);
+    if (!status)
     {
-        randomBytes((uint8_t *)&connectionId, sizeof(connectionId));
-        keyRequestPacket.connectionId = connectionId;
-        KeyRequestPacket_serialize(buffer, &keyRequestPacket);
-
-        bool status = sendBufferTcp(sd, buffer, 1);
-        if (!status)
-        {
-            fprintf(stderr, "sendBufferTcp() failed\n");
-            close(sd);
-            return false;
-        }
-
-        status = sendBufferTcp(sd, buffer + 1, KeyRequestPacket_SIZE - 1);
-        if (!status)
-        {
-            fprintf(stderr, "sendBufferTcp() failed\n");
-            close(sd);
-            return false;
-        }
-
-        memset(buffer, 0, sizeof(buffer));
-        status = recvBufferTcp(sd, buffer, KeyResponsePacket_SIZE);
-        if (!status)
-        {
-            fprintf(stderr, "recvBufferTcp() failed\n");
-            close(sd);
-            return false;
-        }
-
-        KeyResponsePacket keyResponsePacket;
-        memset(&keyResponsePacket, 0, sizeof(keyResponsePacket));
-
-        KeyResponsePacket_deserialize(&keyResponsePacket, buffer);
-
-        strncpy(client->serverPublicKey, keyResponsePacket.rsaPublicKey, sizeof(keyResponsePacket.rsaPublicKey) - 1);
-
-        uint8_t aesKey[256];
-        size_t len = sizeof(aesKey);
-        rsaDecrypt(aesKey, &len, keyResponsePacket.aesKey, sizeof(keyResponsePacket.aesKey), client->keypair);
-        memcpy(client->aesKey, aesKey, 32);
-
-        memset(aesKey, 0, sizeof(aesKey));
-        if (keyResponsePacket.success == 0)
-        {
-            fprintf(stderr, "Key request failed\n");
-            continue;
-        }
-
-        client->connectionId = connectionId;
-
-        return true;
+        fprintf(stderr, "sendBufferTcp() failed\n");
+        return false;
     }
 
-    close(sd);
+    status = sendBufferTcp(client->syncSocket, buffer + 1, ConnectionRequestPacket_SIZE - 1);
+    if (!status)
+    {
+        fprintf(stderr, "sendBufferTcp() failed\n");
+        return false;
+    }
 
-    return false;
+    memset(buffer, 0, sizeof(buffer));
+    status = recvBufferTcp(client->syncSocket, buffer, ConnectionResponsePacket_SIZE);
+    if (!status)
+    {
+        fprintf(stderr, "recvBufferTcp() failed\n");
+        return false;
+    }
+
+    ConnectionResponsePacket connectionResponsePacket;
+    memset(&connectionResponsePacket, 0, sizeof(connectionResponsePacket));
+
+    ConnectionResponsePacket_deserialize(&connectionResponsePacket, buffer);
+
+    strncpy(client->serverPublicKey, connectionResponsePacket.rsaPublicKey, sizeof(connectionResponsePacket.rsaPublicKey) - 1);
+
+    uint8_t aesKey[256];
+    size_t len = sizeof(aesKey);
+    rsaDecrypt(aesKey, &len, connectionResponsePacket.aesKey, sizeof(connectionResponsePacket.aesKey), client->keypair);
+    memcpy(client->aesKey, aesKey, 32);
+
+    memset(aesKey, 0, sizeof(aesKey));
+    if (connectionResponsePacket.success == 0)
+    {
+        fprintf(stderr, "Key request failed\n");
+        close(client->syncSocket);
+    }
+
+    client->connectionId = connectionId;
+
+    return true;
 }
 
 int HomeLinkClient__registerHost(const HomeLinkClient *client)
 {
-    int sd = socket(AF_INET6, SOCK_STREAM, 0);
-    if (sd < 0)
-    {
-        fprintf(stderr, "socket() failed [%d]\n", errno);
-        return e_RegisterFailed;
-    }
-
-    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
-    {
-        fprintf(stderr, "connect() failed [%d]\n", errno);
-        close(sd);
-        return e_RegisterFailed;
-    }
-
     const char *hostKey = getHostKey();
     if (hostKey == NULL)
     {
         fprintf(stderr, "Failed to read host key\n");
-        close(sd);
         return e_RegisterFailed;
     }
 
     RegisterRequestPacket registerRequestPacket;
     uint8_t buffer[1024];
-    for (int i = 0; i < RETRY_COUNT; ++i)
+    memset(buffer, 0, sizeof(buffer));
+    memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
+    registerRequestPacket.packetType = e_RegisterRequest;
+    registerRequestPacket.registrationType = e_HostRegistration;
+    strncpy(registerRequestPacket.hostId, client->hostId, sizeof(registerRequestPacket.hostId) - 1);
+    uint8_t data[128] = {0};
+    randomBytes(data, 32);
+    strncpy((char *)(data + 32), hostKey, 65);
+    memset(data + 104, 0, 24);
+    size_t len = sizeof(registerRequestPacket.data);
+    bool success = rsaEncrypt(registerRequestPacket.data, &len, data, sizeof(data), client->serverPublicKey);
+    if (!success)
     {
-        memset(buffer, 0, sizeof(buffer));
-        memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
-        registerRequestPacket.packetType = e_RegisterRequest;
-        registerRequestPacket.registrationType = e_HostRegistration;
-        strncpy(registerRequestPacket.hostId, client->hostId, sizeof(registerRequestPacket.hostId) - 1);
-        uint8_t data[128] = {0};
-        randomBytes(data, 32);
-        strncpy((char *)(data + 32), hostKey, 65);
-        memset(data + 104, 0, 24);
-        size_t len = sizeof(registerRequestPacket.data);
-        bool success = rsaEncrypt(registerRequestPacket.data, &len, data, sizeof(data), client->serverPublicKey);
-        if (!success)
-        {
-            fprintf(stderr, "rsaEncrypt() failed\n");
-            close(sd);
-            return e_RegisterFailed;
-        }
-
-        memset(data, 0, sizeof(data));
-
-        RegisterRequestPacket_serialize(buffer, &registerRequestPacket);
-        bool status = sendBufferTcp(sd, buffer, 1);
-        if (!status)
-        {
-            fprintf(stderr, "sendBufferTcp() failed\n");
-            close(sd);
-            return e_RegisterFailed;
-        }
-
-        status = sendBufferTcp(sd, buffer + 1, RegisterRequestPacket_SIZE - 1);
-        if (!status)
-        {
-            fprintf(stderr, "sendBufferTcp() failed\n");
-            close(sd);
-            return e_RegisterFailed;
-        }
-
-        memset(buffer, 0, sizeof(buffer));
-        status = recvBufferTcp(sd, buffer, RegisterResponsePacket_SIZE);
-        if (!status)
-        {
-            fprintf(stderr, "recvBufferTcp() failed\n");
-            close(sd);
-            return e_RegisterFailed;
-        }
-
-        if (i + 1 == RETRY_COUNT)
-        {
-            close(sd);
-            return e_RegisterFailed;
-        }
+        fprintf(stderr, "rsaEncrypt() failed\n");
+        return e_RegisterFailed;
     }
-    close(sd);
+
+    memset(data, 0, sizeof(data));
+
+    RegisterRequestPacket_serialize(buffer, &registerRequestPacket);
+    bool status = sendBufferTcp(client->syncSocket, buffer, 1);
+    if (!status)
+    {
+        fprintf(stderr, "sendBufferTcp() failed\n");
+        return e_RegisterFailed;
+    }
+
+    status = sendBufferTcp(client->syncSocket, buffer + 1, RegisterRequestPacket_SIZE - 1);
+    if (!status)
+    {
+        fprintf(stderr, "sendBufferTcp() failed\n");
+        return e_RegisterFailed;
+    }
+
+    memset(buffer, 0, sizeof(buffer));
+    status = recvBufferTcp(client->syncSocket, buffer, RegisterResponsePacket_SIZE);
+    if (!status)
+    {
+        fprintf(stderr, "recvBufferTcp() failed\n");
+        return e_RegisterFailed;
+    }
 
     RegisterResponsePacket registerResponsePacket = {0};
     RegisterResponsePacket_deserialize(&registerResponsePacket, buffer);
@@ -632,20 +582,6 @@ int HomeLinkClient__registerHost(const HomeLinkClient *client)
 
 int HomeLinkClient__registerService(const HomeLinkClient *client, const char *serviceId, const char *password)
 {
-    int sd = socket(AF_INET6, SOCK_STREAM, 0);
-    if (sd < 0)
-    {
-        fprintf(stderr, "socket() failed [%d]\n", errno);
-        return e_RegisterFailed;
-    }
-
-    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
-    {
-        fprintf(stderr, "connect() failed [%d]\n", errno);
-        close(sd);
-        return e_RegisterFailed;
-    }
-
     char *hashedPassword = hashPassword(password, strlen(password));
     uint8_t passwordData[192] = {0};
 
@@ -653,7 +589,6 @@ int HomeLinkClient__registerService(const HomeLinkClient *client, const char *se
     if (hostKey == NULL)
     {
         fprintf(stderr, "Failed to read host key\n");
-        close(sd);
         return e_RegisterFailed;
     }
     strncpy((char *)(passwordData) + 32, getHostKey(), 65);
@@ -665,91 +600,69 @@ int HomeLinkClient__registerService(const HomeLinkClient *client, const char *se
     passwordData[161] = '\0';
     uint8_t buffer[1024];
 
-    for (int i = 0; i < RETRY_COUNT; ++i)
+    RegisterRequestPacket registerRequestPacket;
+    memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
+
+    randomBytes(passwordData, 32);
+
+    strncpy(registerRequestPacket.hostId, client->hostId, sizeof(registerRequestPacket.hostId) - 1);
+    strncpy(registerRequestPacket.serviceId, serviceId, sizeof(registerRequestPacket.serviceId) - 1);
+
+    size_t len = sizeof(registerRequestPacket.data);
+    rsaEncrypt(registerRequestPacket.data, &len, passwordData, sizeof(passwordData), client->serverPublicKey);
+
+    registerRequestPacket.packetType = e_RegisterRequest;
+    registerRequestPacket.registrationType = e_ServiceRegistration;
+
+    memset(buffer, 0, sizeof(buffer));
+    RegisterRequestPacket_serialize(buffer, &registerRequestPacket);
+
+    bool status = sendBufferTcp(client->syncSocket, buffer, 1);
+    if (!status)
     {
-        RegisterRequestPacket registerRequestPacket;
-        memset(&registerRequestPacket, 0, sizeof(registerRequestPacket));
-
-        randomBytes(passwordData, 32);
-
-        strncpy(registerRequestPacket.hostId, client->hostId, sizeof(registerRequestPacket.hostId) - 1);
-        strncpy(registerRequestPacket.serviceId, serviceId, sizeof(registerRequestPacket.serviceId) - 1);
-
-        size_t len = sizeof(registerRequestPacket.data);
-        rsaEncrypt(registerRequestPacket.data, &len, passwordData, sizeof(passwordData), client->serverPublicKey);
-
-        registerRequestPacket.packetType = e_RegisterRequest;
-        registerRequestPacket.registrationType = e_ServiceRegistration;
-
-        memset(buffer, 0, sizeof(buffer));
-        RegisterRequestPacket_serialize(buffer, &registerRequestPacket);
-
-        bool status = sendBufferTcp(sd, buffer, 1);
-        if (!status)
-        {
-            fprintf(stderr, "sendBufferTcp() failed [%d]\n", errno);
-            memset(passwordData, 0, sizeof(passwordData));
-            close(sd);
-            return e_RegisterFailed;
-        }
-
-        status = sendBufferTcp(sd, buffer + 1, RegisterRequestPacket_SIZE - 1);
-        if (!status)
-        {
-            fprintf(stderr, "sendBufferTcp() failed [%d]\n", errno);
-            memset(passwordData, 0, sizeof(passwordData));
-            close(sd);
-            return e_RegisterFailed;
-        }
-
-        memset(buffer, 0, sizeof(buffer));
-
-        status = recvBufferTcp(sd, buffer, RegisterResponsePacket_SIZE);
-        if (!status)
-        {
-            fprintf(stderr, "recvBufferTcp() failed\n");
-            memset(passwordData, 0, sizeof(passwordData));
-            close(sd);
-            return e_RegisterFailed;
-        }
-
-        RegisterResponsePacket registerResponsePacket;
-        RegisterResponsePacket_deserialize(&registerResponsePacket, buffer);
-
+        fprintf(stderr, "sendBufferTcp() failed [%d]\n", errno);
         memset(passwordData, 0, sizeof(passwordData));
-        close(sd);
-        if (registerResponsePacket.status == e_AlreadyExists || registerResponsePacket.status == e_RegisterSuccess)
-        {
-            return registerResponsePacket.status;
-        }
-        else
-        {
-            fprintf(stderr, "Register error\n");
-            return e_RegisterFailed;
-        }
+        return e_RegisterFailed;
+    }
+
+    status = sendBufferTcp(client->syncSocket, buffer + 1, RegisterRequestPacket_SIZE - 1);
+    if (!status)
+    {
+        fprintf(stderr, "sendBufferTcp() failed [%d]\n", errno);
+        memset(passwordData, 0, sizeof(passwordData));
+        return e_RegisterFailed;
+    }
+
+    memset(buffer, 0, sizeof(buffer));
+
+    status = recvBufferTcp(client->syncSocket, buffer, RegisterResponsePacket_SIZE);
+    if (!status)
+    {
+        fprintf(stderr, "recvBufferTcp() failed\n");
+        memset(passwordData, 0, sizeof(passwordData));
+        return e_RegisterFailed;
+    }
+
+    RegisterResponsePacket registerResponsePacket;
+    RegisterResponsePacket_deserialize(&registerResponsePacket, buffer);
+
+    memset(passwordData, 0, sizeof(passwordData));
+    if (registerResponsePacket.status == e_AlreadyExists || registerResponsePacket.status == e_RegisterSuccess)
+    {
+        return registerResponsePacket.status;
+    }
+    else
+    {
+        fprintf(stderr, "Register error\n");
+        return e_RegisterFailed;
     }
 
     memset(passwordData, 0, sizeof(passwordData));
-    close(sd);
     return e_RegisterFailed;
 }
 
 int HomeLinkClient__login(HomeLinkClient *client, const char *password)
 {
-    int sd = socket(AF_INET6, SOCK_STREAM, 0);
-    if (sd < 0)
-    {
-        fprintf(stderr, "socket() failed [%d]\n", errno);
-        return e_LoginFailed;
-    }
-
-    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
-    {
-        fprintf(stderr, "connect() failed [%d]\n", errno);
-        close(sd);
-        return e_LoginFailed;
-    }
-
     uint8_t buffer[1024] = {0};
 
     char *hashedPassword = hashPassword(password, strlen(password));
@@ -758,100 +671,77 @@ int HomeLinkClient__login(HomeLinkClient *client, const char *password)
     memset(hashedPassword, 0, strlen(hashedPassword));
     free(hashedPassword);
 
-    for (int i = 0; i < RETRY_COUNT; ++i)
+    LoginRequestPacket loginRequestPacket;
+    memset(&loginRequestPacket, 0, sizeof(loginRequestPacket));
+
+    loginRequestPacket.packetType = e_LoginRequest;
+    loginRequestPacket.connectionId = client->connectionId;
+    strncpy(loginRequestPacket.hostId, client->hostId, sizeof(loginRequestPacket.hostId) - 1);
+    strncpy(loginRequestPacket.serviceId, client->serviceId, sizeof(loginRequestPacket.serviceId) - 1);
+
+    randomBytes(passwordData, 32);
+    randomBytes(passwordData + 104, 24);
+
+    size_t len = sizeof(loginRequestPacket.data);
+    rsaEncrypt(loginRequestPacket.data, &len, passwordData, sizeof(passwordData), client->serverPublicKey);
+
+    memset(buffer, 0, sizeof(buffer));
+
+    LoginRequestPacket_serialize(buffer, &loginRequestPacket);
+
+    bool status = sendBufferTcp(client->syncSocket, buffer, 1);
+    if (!status)
     {
-        LoginRequestPacket loginRequestPacket;
-        memset(&loginRequestPacket, 0, sizeof(loginRequestPacket));
+        fprintf(stderr, "sendBufferTcp() failed\n");
+        memset(passwordData, 0, sizeof(passwordData));
+        return e_LoginFailed;
+    }
 
-        loginRequestPacket.packetType = e_LoginRequest;
-        loginRequestPacket.connectionId = client->connectionId;
-        strncpy(loginRequestPacket.hostId, client->hostId, sizeof(loginRequestPacket.hostId) - 1);
-        strncpy(loginRequestPacket.serviceId, client->serviceId, sizeof(loginRequestPacket.serviceId) - 1);
+    status = sendBufferTcp(client->syncSocket, buffer + 1, LoginRequestPacket_SIZE - 1);
+    if (!status)
+    {
+        fprintf(stderr, "sendBufferTcp() failed\n");
+        memset(passwordData, 0, sizeof(passwordData));
+        return e_LoginFailed;
+    }
 
-        randomBytes(passwordData, 32);
-        randomBytes(passwordData + 104, 24);
+    status = recvBufferTcp(client->syncSocket, buffer, LoginResponsePacket_SIZE);
+    if (!status)
+    {
+        fprintf(stderr, "recvBufferTcp() failed\n");
+        return e_LoginFailed;
+    }
 
-        size_t len = sizeof(loginRequestPacket.data);
-        rsaEncrypt(loginRequestPacket.data, &len, passwordData, sizeof(passwordData), client->serverPublicKey);
+    LoginResponsePacket loginResponsePacket;
+    LoginResponsePacket_deserialize(&loginResponsePacket, buffer);
 
-        memset(buffer, 0, sizeof(buffer));
+    LoginStatus loginStatus = loginResponsePacket.status;
 
-        LoginRequestPacket_serialize(buffer, &loginRequestPacket);
-
-        bool status = sendBufferTcp(sd, buffer, 1);
-        if (!status)
-        {
-            fprintf(stderr, "sendBufferTcp() failed\n");
-            memset(passwordData, 0, sizeof(passwordData));
-            close(sd);
-            return e_LoginFailed;
-        }
-
-        status = sendBufferTcp(sd, buffer + 1, LoginRequestPacket_SIZE - 1);
-        if (!status)
-        {
-            fprintf(stderr, "sendBufferTcp() failed\n");
-            memset(passwordData, 0, sizeof(passwordData));
-            close(sd);
-            return e_LoginFailed;
-        }
-
-        status = recvBufferTcp(sd, buffer, LoginResponsePacket_SIZE);
-        if (!status)
-        {
-            fprintf(stderr, "recvBufferTcp() failed\n");
-            close(sd);
-            return e_LoginFailed;
-        }
-
-        LoginResponsePacket loginResponsePacket;
-        LoginResponsePacket_deserialize(&loginResponsePacket, buffer);
-
-        LoginStatus loginStatus = loginResponsePacket.status;
-
-        if (loginStatus == e_LoginFailed)
-        {
-            fprintf(stderr, "Incorrect password\n");
-            memset(passwordData, 0, sizeof(passwordData));
-            close(sd);
-            return e_LoginFailed;
-        }
-        else if (loginStatus == e_LoginSuccess)
-        {
-            decryptSessionKey(client->sessionKey, loginResponsePacket.sessionKey, client->aesKey);
-            break;
-        }
-        else
-        {
-            fprintf(stderr, "Login error\n");
-            memset(passwordData, 0, sizeof(passwordData));
-            close(sd);
-            return e_LoginFailed;
-        }
+    if (loginStatus == e_LoginFailed)
+    {
+        fprintf(stderr, "Incorrect password\n");
+        memset(passwordData, 0, sizeof(passwordData));
+        return e_LoginFailed;
+    }
+    else if (loginStatus == e_LoginSuccess)
+    {
+        decryptSessionKey(client->sessionKey, loginResponsePacket.sessionKey, client->aesKey);
+        return e_LoginSuccess;
+    }
+    else
+    {
+        fprintf(stderr, "Login error\n");
+        memset(passwordData, 0, sizeof(passwordData));
+        return e_LoginFailed;
     }
 
     memset(passwordData, 0, sizeof(passwordData));
-    close(sd);
     client->active = true;
     return e_LoginSuccess;
 }
 
 void HomeLinkClient__logout(HomeLinkClient *client)
 {
-    int sd = socket(AF_INET6, SOCK_STREAM, 0);
-    if (sd < 0)
-    {
-        fprintf(stderr, "socket() failed [%d]\n", errno);
-        return;
-    }
-
-    if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
-    {
-        fprintf(stderr, "connect() failed [%d]\n", errno);
-        close(sd);
-        return;
-    }
-
     uint8_t buffer[1024] = {0};
     LogoutPacket logoutPacket;
     memset(&logoutPacket, 0, sizeof(logoutPacket));
@@ -861,28 +751,24 @@ void HomeLinkClient__logout(HomeLinkClient *client)
     if (!status)
     {
         fprintf(stderr, "rsaEncrypt() failed\n");
-        close(sd);
         return;
     }
 
     LogoutPacket_serialize(buffer, &logoutPacket);
-    status = sendBufferTcp(sd, buffer, 1);
+    status = sendBufferTcp(client->syncSocket, buffer, 1);
     if (!status)
     {
         fprintf(stderr, "sendBufferTcp() failed\n");
-        close(sd);
         return;
     }
 
-    status = sendBufferTcp(sd, buffer + 1, LogoutPacket_SIZE - 1);
+    status = sendBufferTcp(client->syncSocket, buffer + 1, LogoutPacket_SIZE - 1);
     if (!status)
     {
         fprintf(stderr, "sendBufferTcp() failed\n");
-        close(sd);
         return;
     }
 
-    close(sd);
     client->active = false;
     memset(client->sessionKey, 0, sizeof(client->sessionKey));
 }
@@ -893,9 +779,21 @@ bool HomeLinkClient__readFileAsync(HomeLinkClient *client, const char *directory
     {
         return false;
     }
+
+    client->asyncFileSocket = socket(AF_INET6, SOCK_STREAM, 0);
+    if (client->asyncFileSocket < 0)
+    {
+        fprintf(stderr, "socket() failed [%d]\n", errno);
+        EVP_PKEY_free(client->keypair);
+        free(client);
+        return NULL;
+    }
+
     if (connect(client->asyncFileSocket, (const struct sockaddr *)(&client->serverAddress), (socklen_t)(sizeof(client->serverAddress))) < 0)
     {
         fprintf(stderr, "connect() failed [%d]\n", errno);
+        close(client->asyncFileSocket);
+        client->asyncFileSocket = -1;
     }
 
     HomeLinkReadFileAsyncArgs *args = (HomeLinkReadFileAsyncArgs *)calloc(1, sizeof(HomeLinkReadFileAsyncArgs));
@@ -1030,7 +928,15 @@ bool HomeLinkClient__writeFile(const HomeLinkClient *client, const char *destina
 
 void HomeLinkClient__delete(HomeLinkClient **client)
 {
-    close((*client)->asyncFileSocket);
+    if ((*client)->syncSocket < 0)
+    {
+        close((*client)->syncSocket);
+    }
+    if ((*client)->asyncFileSocket < 0)
+    {
+        close((*client)->asyncFileSocket);
+    }
+
     if ((*client)->asyncFileThreadId != 0)
     {
         pthread_join((*client)->asyncFileThreadId, NULL);

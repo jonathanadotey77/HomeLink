@@ -238,7 +238,7 @@ int main(int argc, char **argv)
 
     signal(SIGPIPE, SIG_IGN);
 
-    if (!HomeLinkClient__fetchKeys(client))
+    if (!HomeLinkClient__connect(client))
     {
         free(client);
         return 1;

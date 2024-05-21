@@ -86,7 +86,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (!HomeLinkClient__fetchKeys(client))
+    if (!HomeLinkClient__connect(client))
     {
         shutdownDaemon();
         return 1;

@@ -117,11 +117,6 @@ bool recvBufferTcp(int sd, uint8_t *buffer, int n)
         bytesReceived += rc;
     }
 
-    if (bytesReceived != n)
-    {
-        printf("Only received %d bytes\n", bytesReceived);
-    }
-
     return bytesReceived == n;
 }
 
