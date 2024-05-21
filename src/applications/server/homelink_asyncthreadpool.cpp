@@ -244,12 +244,10 @@ void AsyncThreadPool::removeService(const std::string &hostId, const std::string
             for (auto itr = this->clientInfoMap[hostId][serviceId].begin(); itr != this->clientInfoMap[hostId][serviceId].end(); ++itr)
             {
                 activeThreadIds.erase(itr->second.threadId);
-                printf("Erasing %llu\n", (unsigned long long)itr->second.threadId);
             }
         }
         else
         {
-            printf("Erasing %llu\n", (unsigned long long)this->clientInfoMap[hostId][serviceId][eventType].threadId);
             activeThreadIds.erase(this->clientInfoMap[hostId][serviceId][eventType].threadId);
         }
         activeThreadIdsLock.unlock();

@@ -26,6 +26,8 @@ extern "C"
     // Sets fields within the struct using the provided args.
     extern HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, const char **argv);
 
+    extern bool HomeLinkClient__connect(HomeLinkClient *client);
+
     // Fetches the RSA public key and AES-256 key from the server,
     // while sending the client's RSA public key. All
     // HomeLinkClient functions except initialize require

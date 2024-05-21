@@ -34,7 +34,8 @@ extern "C"
         e_RegisterRequest = 8,
         e_RegisterResponse = 9,
         e_Logout = 10,
-        e_AsyncNotification = 11
+        e_AsyncListenRequest = 11,
+        e_AsyncNotification = 12
     } HomeLinkPacketType;
 
     typedef enum RegistrationType
@@ -49,7 +50,6 @@ extern "C"
         e_AnyEvent = 255
     } AsyncEventType;
 
-    // UDP
     typedef struct PingPacket
     {
         uint8_t packetType;
@@ -59,7 +59,6 @@ extern "C"
     extern void PingPacket_serialize(uint8_t *buffer, const PingPacket *packet);
     extern void PingPacket_deserialize(PingPacket *packet, const uint8_t *buffer);
 
-    // UDP
     typedef struct AckPacket
     {
         uint8_t packetType;
@@ -69,7 +68,6 @@ extern "C"
     extern void AckPacket_serialize(uint8_t *buffer, const AckPacket *packet);
     extern void AckPacket_deserialize(AckPacket *packet, const uint8_t *buffer);
 
-    // UDP
     typedef struct KeyRequestPacket
     {
         uint8_t packetType;
@@ -82,7 +80,6 @@ extern "C"
     extern void KeyRequestPacket_deserialize(KeyRequestPacket *packet,
                                              const uint8_t *buffer);
 
-    // UDP
     typedef struct KeyResponsePacket
     {
         uint8_t packetType;
@@ -96,7 +93,6 @@ extern "C"
     extern void KeyResponsePacket_deserialize(KeyResponsePacket *packet,
                                               const uint8_t *buffer);
 
-    // TCP
     typedef struct CommandPacket
     {
         uint8_t packetType;
@@ -108,7 +104,6 @@ extern "C"
     extern void CommandPacket_serialize(uint8_t *buffer, const CommandPacket *packet);
     extern void CommandPacket_deserialize(CommandPacket *packet, const uint8_t *buffer);
 
-    // UDP
     typedef struct LoginRequestPacket
     {
         uint8_t packetType;
@@ -123,7 +118,6 @@ extern "C"
     extern void LoginRequestPacket_deserialize(LoginRequestPacket *packet,
                                                const uint8_t *buffer);
 
-    // UDP
     typedef struct LoginResponsePacket
     {
         uint8_t packetType;
@@ -136,7 +130,6 @@ extern "C"
     extern void LoginResponsePacket_deserialize(LoginResponsePacket *packet,
                                                 const uint8_t *buffer);
 
-    // UDP
     typedef struct RegisterRequestPacket
     {
         uint8_t packetType;
@@ -151,7 +144,6 @@ extern "C"
     extern void RegisterRequestPacket_deserialize(RegisterRequestPacket *packet,
                                                   const uint8_t *buffer);
 
-    // UDP
     typedef struct RegisterResponsePacket
     {
         uint8_t packetType;
@@ -163,7 +155,6 @@ extern "C"
     extern void RegisterResponsePacket_deserialize(RegisterResponsePacket *packet,
                                                    const uint8_t *buffer);
 
-    // UDP
     typedef struct LogoutPacket
     {
         uint8_t packetType;
@@ -173,6 +164,17 @@ extern "C"
     extern const int32_t LogoutPacket_SIZE;
     extern void LogoutPacket_serialize(uint8_t *buffer, const LogoutPacket *packet);
     extern void LogoutPacket_deserialize(LogoutPacket *packet, const uint8_t *buffer);
+
+    typedef struct AsyncListenRequestPacket
+    {
+        uint8_t packetType;
+        uint8_t eventType;
+        uint32_t connectionId;
+        uint8_t sessionKey[80];
+    } AsyncListenRequestPacket;
+    extern const int32_t AsyncListenRequestPacket_SIZE;
+    extern void AsyncListenRequestPacket_serialize(uint8_t *buffer, const AsyncListenRequestPacket *packet);
+    extern void AsyncListenRequestPacket_deserialize(AsyncListenRequestPacket *packet, const uint8_t *buffer);
 
     typedef struct AsyncNotificationPacket
     {

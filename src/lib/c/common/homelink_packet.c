@@ -276,6 +276,34 @@ void LogoutPacket_deserialize(LogoutPacket *packet, const uint8_t *buffer)
     memcpy(packet->sessionKey, sessionKey, sizeof(packet->sessionKey));
 }
 
+const int32_t AsyncListenRequestPacket_SIZE = sizeof(((AsyncListenRequestPacket){0}).packetType) + sizeof(((AsyncListenRequestPacket){0}).eventType) + sizeof(((AsyncListenRequestPacket){0}).connectionId) + sizeof(((AsyncListenRequestPacket){0}).sessionKey);
+
+void AsyncListenRequestPacket_serialize(uint8_t *buffer, const AsyncListenRequestPacket *packet)
+{
+    uint8_t *packetType = (uint8_t *)(buffer);
+    uint8_t *eventType = (uint8_t *)(buffer + sizeof(packet->packetType));
+    uint32_t *connectionId = (uint32_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->eventType));
+    uint8_t *sessionKey = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->eventType) + sizeof(packet->connectionId));
+
+    *packetType = packet->packetType;
+    *eventType = packet->eventType;
+    *connectionId = htonl(packet->connectionId);
+    memcpy(sessionKey, packet->sessionKey, sizeof(packet->sessionKey));
+}
+
+void AsyncListenRequestPacket_deserialize(AsyncListenRequestPacket *packet, const uint8_t *buffer)
+{
+    const uint8_t *packetType = (const uint8_t *)(buffer);
+    const uint8_t *eventType = (const uint8_t *)(buffer + sizeof(packet->packetType));
+    const uint32_t *connectionId = (const uint32_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->eventType));
+    const uint8_t *sessionKey = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->eventType) + sizeof(packet->connectionId));
+
+    packet->packetType = *packetType;
+    packet->eventType = *eventType;
+    packet->connectionId = ntohl(*connectionId);
+    memcpy(packet->sessionKey, sessionKey, sizeof(packet->sessionKey));
+}
+
 const int32_t AsyncNotificationPacket_SIZE = sizeof(((AsyncNotificationPacket){0}).packetType) + sizeof(((AsyncNotificationPacket){0}).eventType) + sizeof(((AsyncNotificationPacket){0}).tag);
 
 void AsyncNotificationPacket_serialize(uint8_t *buffer, const AsyncNotificationPacket *packet)

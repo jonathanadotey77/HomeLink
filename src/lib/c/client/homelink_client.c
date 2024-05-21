@@ -108,9 +108,32 @@ static void *HomeLinkClient__readFileAsyncThread(void *a)
     void *context = args->context;
     free(args);
 
-    uint8_t buffer[AsyncNotificationPacket_SIZE];
     struct pollfd fds[1];
     char *filePath = NULL;
+
+    AsyncListenRequestPacket asyncListenRequestPacket;
+    asyncListenRequestPacket.packetType = e_AsyncListenRequest;
+    asyncListenRequestPacket.eventType = e_FileEvent;
+    asyncListenRequestPacket.connectionId = client->connectionId;
+    bool status = encryptSessionKey(asyncListenRequestPacket.sessionKey, client->sessionKey, client->aesKey);
+    if (!status)
+    {
+        fprintf(stderr, "encryptSessionKey() failed\n");
+        return NULL;
+    }
+
+    uint8_t buffer[1024];
+    memset(buffer, 0, sizeof(buffer));
+
+    AsyncListenRequestPacket_serialize(buffer, &asyncListenRequestPacket);
+
+    status = sendBufferTcp(client->asyncFileSocket, buffer, AsyncListenRequestPacket_SIZE);
+    if (!status)
+    {
+        fprintf(stderr, "sendBufferTcp() failed\n");
+        memset(&asyncListenRequestPacket, 0, sizeof(asyncListenRequestPacket));
+        return NULL;
+    }
 
     while (client->active)
     {
@@ -151,7 +174,7 @@ static void *HomeLinkClient__readFileAsyncThread(void *a)
             continue;
         }
 
-        bool status = recvBufferTcp(client->asyncFileSocket, buffer, sizeof(buffer));
+        status = recvBufferTcp(client->asyncFileSocket, buffer, AsyncNotificationPacket_SIZE);
         if (!status)
         {
             fprintf(stderr, "recvBufferTcp() failed\n");
@@ -422,20 +445,28 @@ HomeLinkClient *HomeLinkClient__createWithArgs(const char *serviceId, int argc, 
     return client;
 }
 
+bool HomeLinkClient__connect(HomeLinkClient *client)
+{
+    if (client == NULL)
+    {
+    }
+    return true;
+}
+
 bool HomeLinkClient__fetchKeys(HomeLinkClient *client)
 {
     int sd = socket(AF_INET6, SOCK_STREAM, 0);
     if (sd < 0)
     {
         fprintf(stderr, "socket() failed [%d]\n", errno);
-        return e_RegisterFailed;
+        return false;
     }
 
     if (connect(sd, (const struct sockaddr *)&client->serverAddress, sizeof(client->serverAddress)) < 0)
     {
         fprintf(stderr, "connect() failed [%d]\n", errno);
         close(sd);
-        return e_RegisterFailed;
+        return false;
     }
 
     KeyRequestPacket keyRequestPacket;
@@ -866,8 +897,6 @@ bool HomeLinkClient__readFileAsync(HomeLinkClient *client, const char *directory
     {
         fprintf(stderr, "connect() failed [%d]\n", errno);
     }
-
-    HomeLinkClient__sendCommand(client->asyncFileSocket, client, "LISTEN FILES");
 
     HomeLinkReadFileAsyncArgs *args = (HomeLinkReadFileAsyncArgs *)calloc(1, sizeof(HomeLinkReadFileAsyncArgs));
     args->client = client;

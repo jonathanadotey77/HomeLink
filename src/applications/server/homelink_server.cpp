@@ -548,6 +548,173 @@ void handleReadFileCommand(int sd, const std::string &hostId, const std::string 
     }
 }
 
+void handleWriteFileCommand(int sd, const std::string &destinationHostId, const std::string &destinationServiceId,
+                            const std::string &filePath, const uint8_t *aesKey)
+{
+    std::string tempFileFolder = TEMP_FILES_PATH + "/" + destinationHostId +
+                                 "/" + destinationServiceId + "/";
+    std::string tempFilePrefix = tempFileFolder;
+
+    bool validName = true;
+    for (char c : getTimestamp())
+    {
+        tempFilePrefix.push_back(c);
+    }
+    tempFilePrefix.push_back('.');
+    std::string tempFilePath = tempFilePrefix;
+
+    for (char c : filePath)
+    {
+        if (c == '/')
+        {
+            tempFilePath.push_back('+');
+        }
+        else if (c == '+')
+        {
+            validName = false;
+            break;
+        }
+        else
+        {
+            tempFilePath.push_back(c);
+        }
+    }
+
+    if (!validName)
+    {
+        return;
+    }
+
+    if (verbose)
+    {
+        printf("Writing to %s\n", tempFilePath.c_str());
+    }
+
+    fs::create_directories(tempFileFolder);
+    char *filename =
+        recvFile(sd, tempFilePrefix.c_str(), aesKey, e_ServerRecv);
+
+    if (filename != NULL)
+    {
+        if (verbose)
+        {
+            printf("File '%s' received successfully\n", filename);
+        }
+        int32_t tag = 0;
+        fileQueue->pushFile(destinationHostId, destinationServiceId,
+                            tempFilePath, &tag);
+        asyncThreadPool->notifyService(destinationHostId, destinationServiceId, e_FileEvent, tag);
+        delete[] filename;
+    }
+    else
+    {
+        if (verbose)
+        {
+            printf("Failed to received file\n");
+        }
+    }
+}
+
+void handleCommand(int sd, CommandPacket *commandPacket)
+{
+    if (!validateClient(commandPacket->connectionId, commandPacket->sessionKey))
+    {
+        if (verbose)
+        {
+            printf("Client validation failed\n");
+        }
+
+        return;
+    }
+
+    clientKeysLock.lock();
+    const KeySet &info = clientKeys[commandPacket->connectionId];
+    std::string hostId = info.getHostId();
+    std::string serviceId = info.getServiceId();
+    uint8_t *aesKey = info.getAesKey();
+    clientKeysLock.unlock();
+
+    char commandStr[224] = {0};
+    int commandStrLen = sizeof(commandStr);
+
+    const uint8_t *iv = commandPacket->data + 224;
+    uint8_t *tag = commandPacket->data + 240;
+    if (!aesDecrypt(reinterpret_cast<uint8_t *>(commandStr), &commandStrLen, commandPacket->data, 224, aesKey, iv, tag))
+    {
+        if (verbose)
+        {
+            printf("Command decryption failed\n");
+        }
+
+        memset(aesKey, 0, AES_KEY_SIZE / 8);
+        delete[] aesKey;
+        aesKey = NULL;
+        return;
+    }
+
+    std::vector<std::string> tokens = splitString(std::string(commandStr + 32), ' ');
+
+    if (tokens.empty())
+    {
+        memset(aesKey, 0, AES_KEY_SIZE / 8);
+        delete[] aesKey;
+        aesKey = NULL;
+        return;
+    }
+
+    const std::string &command = tokens[0];
+
+    if (verbose)
+    {
+        printf("Recevied command: %s\n", commandStr + 32);
+    }
+
+    if (command == "READ_FILE")
+    {
+        handleReadFileCommand(sd, hostId, serviceId, aesKey);
+    }
+    else if (command == "WRITE_FILE")
+    {
+        if (tokens.size() != 5)
+        {
+            memset(aesKey, 0, AES_KEY_SIZE / 8);
+            delete[] aesKey;
+            aesKey = NULL;
+            return;
+        }
+        const std::string destinationHostId = tokens[1];
+        const std::string destinationServiceId = tokens[2];
+        const std::string &filePath = tokens[3];
+
+        if (filePath.empty())
+        {
+            memset(aesKey, 0, AES_KEY_SIZE / 8);
+            delete[] aesKey;
+            aesKey = NULL;
+            return;
+        }
+
+        handleWriteFileCommand(sd, destinationHostId, destinationServiceId, filePath, aesKey);
+    }
+
+    memset(aesKey, 0, AES_KEY_SIZE / 8);
+    delete[] aesKey;
+    aesKey = NULL;
+}
+
+void handleAsyncListenRequest(int sd, AsyncListenRequestPacket *asyncListenRequestPacket)
+{
+    clientKeysLock.lock();
+    const std::string &hostId = clientKeys[asyncListenRequestPacket->connectionId].getHostId();
+    const std::string &serviceId = clientKeys[asyncListenRequestPacket->connectionId].getServiceId();
+    uint8_t *aesKey = clientKeys[asyncListenRequestPacket->connectionId].getAesKey();
+    clientKeysLock.unlock();
+
+    AsyncEventType eventType = static_cast<AsyncEventType>(asyncListenRequestPacket->eventType);
+
+    asyncThreadPool->addService(hostId, serviceId, eventType, sd, aesKey);
+}
+
 void *clientThread(void *a)
 {
     ClientThreadArgs *args = reinterpret_cast<ClientThreadArgs *>(a);
@@ -557,8 +724,6 @@ void *clientThread(void *a)
 
     delete args;
 
-    CommandPacket commandPacket;
-
     char sourceAddressStr[64];
 
     if (verbose)
@@ -567,7 +732,6 @@ void *clientThread(void *a)
     }
 
     uint8_t buffer[1024];
-    uint8_t *aesKey = NULL;
 
     // We check the first byte, which contains the packet type
     bool status = recvBufferTcp(sd, buffer, 1);
@@ -580,7 +744,6 @@ void *clientThread(void *a)
 
     HomeLinkPacketType packetType = static_cast<HomeLinkPacketType>(buffer[0]);
 
-    const bool isCommandPacket = packetType == e_Command;
     if (packetType == e_KeyRequest)
     {
         status = recvBufferTcp(sd, buffer + 1, KeyRequestPacket_SIZE - 1);
@@ -649,179 +812,44 @@ void *clientThread(void *a)
         handleLogout(&logoutPacket);
         memset(&logoutPacket, 0, sizeof(logoutPacket));
     }
+    else if (packetType == e_AsyncListenRequest)
+    {
+        status = recvBufferTcp(sd, buffer + 1, AsyncListenRequestPacket_SIZE - 1);
+        if (!status)
+        {
+            fprintf(stderr, "recvBufferTcp() failed\n");
+            close(sd);
+            return NULL;
+        }
 
-    while (isCommandPacket && !isStopped)
+        AsyncListenRequestPacket asyncListenRequestPacket;
+        AsyncListenRequestPacket_deserialize(&asyncListenRequestPacket, buffer);
+
+        handleAsyncListenRequest(sd, &asyncListenRequestPacket);
+        return NULL;
+    }
+    else if (packetType == e_Command)
     {
         if (verbose)
         {
             printf("Received command packet from %s\n", sourceAddressStr);
         }
+
+        CommandPacket commandPacket;
         memset(&commandPacket, 0, sizeof(commandPacket));
         status = recvBufferTcp(sd, buffer + 1, CommandPacket_SIZE - 1);
         if (!status)
         {
             fprintf(stderr, "Failed to receive command\n");
-            break;
+            return NULL;
         }
 
         CommandPacket_deserialize(&commandPacket, buffer);
 
-        if (commandPacket.packetType != e_Command)
-        {
-            break;
-        }
-
-        if (!validateClient(commandPacket.connectionId, commandPacket.sessionKey))
-        {
-            if (verbose)
-            {
-                printf("Client validation failed\n");
-            }
-
-            break;
-        }
-
-        clientKeysLock.lock();
-        const KeySet &info = clientKeys[commandPacket.connectionId];
-        std::string hostId = info.getHostId();
-        std::string serviceId = info.getServiceId();
-        aesKey = info.getAesKey();
-        clientKeysLock.unlock();
-
-        char commandStr[224] = {0};
-        int commandStrLen = sizeof(commandStr);
-
-        const uint8_t *iv = commandPacket.data + 224;
-        uint8_t *tag = commandPacket.data + 240;
-        if (!aesDecrypt(reinterpret_cast<uint8_t *>(commandStr), &commandStrLen, commandPacket.data, 224, aesKey, iv, tag))
-        {
-            if (verbose)
-            {
-                printf("Command decryption failed\n");
-            }
-
-            break;
-        }
-
-        std::vector<std::string> tokens = splitString(std::string(commandStr + 32), ' ');
-
-        if (tokens.empty())
-        {
-            break;
-        }
-
-        const std::string &command = tokens[0];
-
-        if (verbose)
-        {
-            printf("Recevied command: %s\n", commandStr + 32);
-        }
-
-        if (command == "READ_FILE")
-        {
-            handleReadFileCommand(sd, hostId, serviceId, aesKey);
-        }
-        else if (command == "WRITE_FILE")
-        {
-            if (tokens.size() != 5)
-            {
-                break;
-            }
-            const std::string destinationHostId = tokens[1];
-            const std::string destinationServiceId = tokens[2];
-            const std::string &filePath = tokens[3];
-
-            if (filePath.empty())
-            {
-                break;
-            }
-
-            std::string tempFileFolder = TEMP_FILES_PATH + "/" + destinationHostId +
-                                         "/" + destinationServiceId + "/";
-            std::string tempFilePrefix = tempFileFolder;
-
-            bool validName = true;
-            for (char c : getTimestamp())
-            {
-                tempFilePrefix.push_back(c);
-            }
-            tempFilePrefix.push_back('.');
-            std::string tempFilePath = tempFilePrefix;
-
-            for (char c : filePath)
-            {
-                if (c == '/')
-                {
-                    tempFilePath.push_back('+');
-                }
-                else if (c == '+')
-                {
-                    validName = false;
-                    break;
-                }
-                else
-                {
-                    tempFilePath.push_back(c);
-                }
-            }
-
-            if (!validName)
-            {
-                break;
-            }
-
-            if (verbose)
-            {
-                printf("Writing to %s\n", tempFilePath.c_str());
-            }
-
-            fs::create_directories(tempFileFolder);
-            char *filename =
-                recvFile(sd, tempFilePrefix.c_str(), aesKey, e_ServerRecv);
-
-            if (filename != NULL)
-            {
-                if (verbose)
-                {
-                    printf("File '%s' received successfully\n", filename);
-                }
-                int32_t tag = 0;
-                fileQueue->pushFile(destinationHostId, destinationServiceId,
-                                    tempFilePath, &tag);
-                asyncThreadPool->notifyService(destinationHostId, destinationServiceId, e_FileEvent, tag);
-                delete[] filename;
-            }
-            else
-            {
-                if (verbose)
-                {
-                    printf("Failed to received file\n");
-                }
-            }
-        }
-        else if (command == "LISTEN")
-        {
-            if (tokens.size() != 2)
-            {
-                break;
-            }
-            const std::string &eventType = tokens[1];
-
-            if (eventType == "FILES")
-            {
-                asyncThreadPool->addService(hostId, serviceId, e_FileEvent, sd, aesKey);
-                return NULL;
-            }
-        }
-
-        break;
+        handleCommand(sd, &commandPacket);
     }
-
-    if (aesKey != NULL)
+    else
     {
-        memset(aesKey, 0, 32);
-        delete[] aesKey;
-        aesKey = NULL;
     }
 
     close(sd);
