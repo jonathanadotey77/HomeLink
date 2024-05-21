@@ -1,3 +1,4 @@
+#include <homelink_aeskey.h>
 #include <homelink_asyncthreadpool.h>
 #include <homelink_filequeue.h>
 #include <homelink_keyset.h>
@@ -145,10 +146,8 @@ bool validateClient(uint32_t connectionId, uint8_t *encryptedSessionKey)
     }
     else
     {
-        uint8_t *aesKey = clientKeys[connectionId].getAesKey();
-        success = decryptSessionKey(sessionKey, encryptedSessionKey, aesKey);
-        memset(aesKey, 0, AES_KEY_SIZE / 8);
-        delete[] aesKey;
+        AesKey aesKey = clientKeys[connectionId].getAesKey();
+        success = decryptSessionKey(sessionKey, encryptedSessionKey, aesKey.data());
         aesKey = NULL;
         if (!success)
         {
@@ -235,10 +234,8 @@ void handleConnectionRequest(const int sd, const ConnectionRequestPacket *connec
     getRSAPublicKey(keypair, publicKey, &len);
     strncpy(connectionResponsePacket.rsaPublicKey, publicKey, len);
 
-    uint8_t *aesKey = clientKeys[connectionRequestPacket->connectionId].getAesKey();
-    rsaEncrypt(connectionResponsePacket.aesKey, &len, aesKey, AES_KEY_SIZE / 8, connectionRequestPacket->rsaPublicKey);
-    memset(aesKey, 0, AES_KEY_SIZE / 8);
-    delete[] aesKey;
+    AesKey aesKey = clientKeys[connectionRequestPacket->connectionId].getAesKey();
+    rsaEncrypt(connectionResponsePacket.aesKey, &len, aesKey.data(), AES_KEY_SIZE / 8, connectionRequestPacket->rsaPublicKey);
 
     uint8_t buffer[ConnectionResponsePacket_SIZE];
 
@@ -430,10 +427,8 @@ void handleLoginRequest(const int sd, const LoginRequestPacket *loginRequestPack
 
             const char *sessionKey = clientKeys[connectionId].newSessionKey();
 
-            uint8_t *aesKey = clientKeys[connectionId].getAesKey();
-            bool success = encryptSessionKey(loginResponsePacket.sessionKey, sessionKey, aesKey);
-            memset(aesKey, 0, AES_KEY_SIZE / 8);
-            delete[] aesKey;
+            AesKey aesKey = clientKeys[connectionId].getAesKey();
+            bool success = encryptSessionKey(loginResponsePacket.sessionKey, sessionKey, aesKey.data());
             if (!success)
             {
                 clientKeysLock.unlock();
@@ -447,6 +442,7 @@ void handleLoginRequest(const int sd, const LoginRequestPacket *loginRequestPack
         }
 
         uint8_t buffer[LoginResponsePacket_SIZE];
+        memset(buffer, 0, sizeof(buffer));
         LoginResponsePacket_serialize(buffer, &loginResponsePacket);
 
         bool success = sendBufferTcp(sd, buffer, LoginResponsePacket_SIZE);
@@ -619,7 +615,7 @@ void handleWriteFileCommand(const int sd, const std::string &destinationHostId, 
         fileQueue->pushFile(destinationHostId, destinationServiceId,
                             tempFilePath, &tag);
         asyncThreadPool->notifyService(destinationHostId, destinationServiceId, e_FileEvent, tag);
-        delete[] filename;
+        free(filename);
     }
     else
     {
@@ -646,7 +642,7 @@ void handleCommand(const int sd, CommandPacket *commandPacket, const uint32_t co
     const KeySet &info = clientKeys[commandPacket->connectionId];
     std::string hostId = info.getHostId();
     std::string serviceId = info.getServiceId();
-    uint8_t *aesKey = info.getAesKey();
+    AesKey aesKey = info.getAesKey();
     clientKeysLock.unlock();
 
     char commandStr[224] = {0};
@@ -654,15 +650,13 @@ void handleCommand(const int sd, CommandPacket *commandPacket, const uint32_t co
 
     const uint8_t *iv = commandPacket->data + 224;
     uint8_t *tag = commandPacket->data + 240;
-    if (!aesDecrypt(reinterpret_cast<uint8_t *>(commandStr), &commandStrLen, commandPacket->data, 224, aesKey, iv, tag))
+    if (!aesDecrypt(reinterpret_cast<uint8_t *>(commandStr), &commandStrLen, commandPacket->data, 224, aesKey.data(), iv, tag))
     {
         if (verbose)
         {
             printf("{%lu} Command decryption failed\n", static_cast<unsigned long>(connectionId));
         }
 
-        memset(aesKey, 0, AES_KEY_SIZE / 8);
-        delete[] aesKey;
         aesKey = NULL;
         return;
     }
@@ -671,8 +665,6 @@ void handleCommand(const int sd, CommandPacket *commandPacket, const uint32_t co
 
     if (tokens.empty())
     {
-        memset(aesKey, 0, AES_KEY_SIZE / 8);
-        delete[] aesKey;
         aesKey = NULL;
         return;
     }
@@ -686,15 +678,12 @@ void handleCommand(const int sd, CommandPacket *commandPacket, const uint32_t co
 
     if (command == "READ_FILE")
     {
-        handleReadFileCommand(sd, hostId, serviceId, aesKey, connectionId);
+        handleReadFileCommand(sd, hostId, serviceId, aesKey.data(), connectionId);
     }
     else if (command == "WRITE_FILE")
     {
         if (tokens.size() != 5)
         {
-            memset(aesKey, 0, AES_KEY_SIZE / 8);
-            delete[] aesKey;
-            aesKey = NULL;
             return;
         }
         const std::string destinationHostId = tokens[1];
@@ -703,18 +692,11 @@ void handleCommand(const int sd, CommandPacket *commandPacket, const uint32_t co
 
         if (filePath.empty())
         {
-            memset(aesKey, 0, AES_KEY_SIZE / 8);
-            delete[] aesKey;
-            aesKey = NULL;
             return;
         }
 
-        handleWriteFileCommand(sd, destinationHostId, destinationServiceId, filePath, aesKey, connectionId);
+        handleWriteFileCommand(sd, destinationHostId, destinationServiceId, filePath, aesKey.data(), connectionId);
     }
-
-    memset(aesKey, 0, AES_KEY_SIZE / 8);
-    delete[] aesKey;
-    aesKey = NULL;
 }
 
 void handleAsyncListenRequest(int sd, AsyncListenRequestPacket *asyncListenRequestPacket)
@@ -722,12 +704,11 @@ void handleAsyncListenRequest(int sd, AsyncListenRequestPacket *asyncListenReque
     clientKeysLock.lock();
     const std::string &hostId = clientKeys[asyncListenRequestPacket->connectionId].getHostId();
     const std::string &serviceId = clientKeys[asyncListenRequestPacket->connectionId].getServiceId();
-    uint8_t *aesKey = clientKeys[asyncListenRequestPacket->connectionId].getAesKey();
     clientKeysLock.unlock();
 
     AsyncEventType eventType = static_cast<AsyncEventType>(asyncListenRequestPacket->eventType);
 
-    asyncThreadPool->addService(hostId, serviceId, eventType, sd, aesKey);
+    asyncThreadPool->addService(hostId, serviceId, eventType, sd);
 }
 
 void *clientThread(void *a)

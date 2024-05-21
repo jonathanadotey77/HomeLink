@@ -1,5 +1,6 @@
 #include <homelink_keyset.h>
 
+#include <homelink_aeskey.h>
 #include <homelink_misc.h>
 #include <homelink_security.h>
 
@@ -12,8 +13,7 @@ KeySet::KeySet()
     this->rsaPublicKey = new char[1];
     this->rsaPublicKeyLen = 1;
 
-    this->aesKey = new uint8_t[1];
-    this->aesKeyLen = 1;
+    this->aesKey = AesKey(8);
 
     this->ctx = EVP_CIPHER_CTX_new();
 }
@@ -27,9 +27,7 @@ KeySet::KeySet(const char *rsaPublicKey, size_t rsaPublicKeyLen)
     this->rsaPublicKeyLen = rsaPublicKeyLen;
     strncpy(this->rsaPublicKey, rsaPublicKey, rsaPublicKeyLen);
 
-    this->aesKey = new uint8_t[AES_KEY_SIZE / 8];
-    this->aesKeyLen = AES_KEY_SIZE / 8;
-    generateAESKey(aesKey, AES_KEY_SIZE);
+    this->aesKey = AesKey(AES_KEY_SIZE);
     this->ctx = EVP_CIPHER_CTX_new();
 }
 
@@ -87,10 +85,7 @@ const char *KeySet::getPublicKey() const { return this->rsaPublicKey; }
 
 void KeySet::copy(const KeySet &other)
 {
-    this->aesKeyLen = other.aesKeyLen;
-    this->aesKey = new uint8_t[this->aesKeyLen];
-    memcpy(this->aesKey, other.aesKey, this->aesKeyLen);
-
+    this->aesKey = other.aesKey;
     this->rsaPublicKeyLen = other.rsaPublicKeyLen;
     this->rsaPublicKey = new char[this->rsaPublicKeyLen + 1];
     memcpy(this->rsaPublicKey, other.rsaPublicKey, this->rsaPublicKeyLen + 1);
@@ -101,19 +96,13 @@ void KeySet::copy(const KeySet &other)
 
 void KeySet::destroy()
 {
-    delete[] this->aesKey;
     delete[] this->rsaPublicKey;
     EVP_CIPHER_CTX_free(this->ctx);
 }
 
-uint8_t *KeySet::getAesKey() const
+const AesKey &KeySet::getAesKey() const
 {
-    uint8_t *key = new uint8_t[aesKeyLen];
-    for (size_t i = 0; i < aesKeyLen; ++i)
-    {
-        key[i] = this->aesKey[i];
-    }
-    return key;
+    return this->aesKey;
 }
 
 const std::string &KeySet::getHostId() const { return this->hostId; }

@@ -506,7 +506,7 @@ bool HomeLinkClient__connect(HomeLinkClient *client)
     memset(aesKey, 0, sizeof(aesKey));
     if (connectionResponsePacket.success == 0)
     {
-        fprintf(stderr, "Key request failed\n");
+        fprintf(stderr, "Connection request failed\n");
         close(client->syncSocket);
     }
 
@@ -794,6 +794,7 @@ bool HomeLinkClient__readFileAsync(HomeLinkClient *client, const char *directory
         fprintf(stderr, "connect() failed [%d]\n", errno);
         close(client->asyncFileSocket);
         client->asyncFileSocket = -1;
+        return false;
     }
 
     HomeLinkReadFileAsyncArgs *args = (HomeLinkReadFileAsyncArgs *)calloc(1, sizeof(HomeLinkReadFileAsyncArgs));
@@ -890,11 +891,11 @@ bool HomeLinkClient__writeFile(const HomeLinkClient *client, const char *destina
 void HomeLinkClient__delete(HomeLinkClient **client)
 {
     sleep(1);
-    if ((*client)->syncSocket < 0)
+    if ((*client)->syncSocket >= 0)
     {
         close((*client)->syncSocket);
     }
-    if ((*client)->asyncFileSocket < 0)
+    if ((*client)->asyncFileSocket >= 0)
     {
         close((*client)->asyncFileSocket);
     }

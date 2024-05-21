@@ -1,6 +1,7 @@
 #ifndef HOMELINK_KEYSET_H
 #define HOMELINK_KEYSET_H
 
+#include <homelink_aeskey.h>
 #include <homelink_security.h>
 
 #include <openssl/evp.h>
@@ -12,8 +13,7 @@
 class KeySet
 {
 private:
-    uint8_t *aesKey;
-    size_t aesKeyLen;
+    AesKey aesKey;
 
     char *rsaPublicKey;
     size_t rsaPublicKeyLen;
@@ -53,7 +53,7 @@ public:
     const char *getPublicKey() const;
 
     // Returns the associated AES key.
-    uint8_t *getAesKey() const;
+    const AesKey &getAesKey() const;
 
     // Returns the hostId if it was set, and an empty string
     // otherwise.

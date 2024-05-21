@@ -1,6 +1,7 @@
 #ifndef HOMELINK_ASYNCTHREADPOOL_H
 #define HOMELINK_ASYNCTHREADPOOL_H
 
+#include <homelink_aeskey.h>
 #include <homelink_packet.h>
 #include <homelink_server.h>
 
@@ -40,7 +41,7 @@ public:
 
     void stop();
 
-    bool addService(const std::string &hostId, const std::string &serviceId, AsyncEventType eventType, int clientSocket, const uint8_t *aesKey);
+    bool addService(const std::string &hostId, const std::string &serviceId, AsyncEventType eventType, int clientSocket);
 
     void removeService(const std::string &hostId, const std::string &serviceId, AsyncEventType eventType);
 

@@ -3,7 +3,6 @@
 #include <homelink_misc.h>
 #include <homelink_net.h>
 #include <homelink_packet.h>
-#include <homelink_server.h>
 
 #include <cstdint>
 #include <cstring>
@@ -27,7 +26,6 @@ typedef struct AsyncClientThreadArgs
     std::string serviceId;
     AsyncThreadPool *asyncThreadPool;
     AsyncEventType eventType;
-    const uint8_t *aesKey;
 } AsyncClientThreadArgs;
 
 static bool isActiveThread(pthread_t threadId)
@@ -56,7 +54,6 @@ void *AsyncThreadPool::clientThread(void *a)
     const std::string serviceId = args->serviceId;
     AsyncThreadPool *asyncThreadPool = args->asyncThreadPool;
     const AsyncEventType eventType = args->eventType;
-    const uint8_t *aesKey = args->aesKey;
 
     delete args;
 
@@ -123,7 +120,6 @@ void *AsyncThreadPool::clientThread(void *a)
 
     close(localSocket);
     close(clientSocket);
-    delete[] aesKey;
     if (isActiveThread(threadId))
     {
         asyncThreadPool->removeService(hostId, serviceId, eventType);
@@ -178,7 +174,7 @@ bool AsyncThreadPool::findService(const std::string &hostId, const std::string &
     return this->clientInfoMap.find(hostId) != this->clientInfoMap.end() && this->clientInfoMap[hostId].find(serviceId) != this->clientInfoMap[hostId].end() && (eventType == e_AnyEvent || this->clientInfoMap[hostId][serviceId].find(eventType) != this->clientInfoMap[hostId][serviceId].end());
 }
 
-bool AsyncThreadPool::addService(const std::string &hostId, const std::string &serviceId, AsyncEventType eventType, int clientSocket, const uint8_t *aesKey)
+bool AsyncThreadPool::addService(const std::string &hostId, const std::string &serviceId, AsyncEventType eventType, int clientSocket)
 {
     bool status = false;
     asyncThreadPoolLock.lock();
@@ -214,7 +210,6 @@ bool AsyncThreadPool::addService(const std::string &hostId, const std::string &s
             args->serviceId = serviceId;
             args->asyncThreadPool = this;
             args->eventType = eventType;
-            args->aesKey = aesKey;
 
             pthread_create(&threadId, NULL, clientThread, args);
             pthread_detach(threadId);

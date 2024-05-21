@@ -275,7 +275,7 @@ int main(int argc, char **argv)
 
     if (!HomeLinkClient__connect(client))
     {
-        free(client);
+        HomeLinkClient__delete(&client);
         return 1;
     }
 
@@ -296,8 +296,8 @@ int main(int argc, char **argv)
             printf("Registration failed\n");
         }
 
+        HomeLinkClient__delete(&client);
         cleanSecurity();
-        free(client);
 
         return 0;
     }
@@ -320,14 +320,16 @@ int main(int argc, char **argv)
         {
             printf("|%s %s\n", password1, password2);
             printf("Passwords do not match!\n");
-            shutdownCli(&client);
+            HomeLinkClient__delete(&client);
+            cleanSecurity();
             return 0;
         }
 
         if (strlen(password1) >= MAX_PASSWORD_LEN)
         {
             printf("Password too long!\n");
-            shutdownCli(&client);
+            HomeLinkClient__delete(&client);
+            cleanSecurity();
             return 0;
         }
 
