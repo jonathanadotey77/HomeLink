@@ -396,9 +396,6 @@ void handleLoginRequest(const int sd, const LoginRequestPacket *loginRequestPack
     const char *hostKey = reinterpret_cast<const char *>(data + 32);
     const char *password = reinterpret_cast<const char *>(data + 97);
 
-    printf("HostKey: %s\n", hostKey);
-    printf("Password: %s\n", password);
-
     if (clientKeys[connectionId].checkTag(tag))
     {
         LoginStatus status = loginSystem->tryLogin(hostId, serviceId, hostKey, password);

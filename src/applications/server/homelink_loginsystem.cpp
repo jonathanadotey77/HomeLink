@@ -173,7 +173,6 @@ LoginStatus LoginSystem::tryLogin(const char *hostId, const char *serviceId,
 
     memset(sql, 0, sizeof(sql));
     memset(&loginStruct, 0, sizeof(loginStruct));
-    printf("Status: %d\n", (int)status);
 
     return status;
 }
