@@ -327,7 +327,7 @@ void handleRegisterRequest(const int sd, const RegisterRequestPacket *registerRe
 
     const char *hostId = registerRequestPacket->hostId;
     char *hostKey = reinterpret_cast<char *>(data + 32);
-    hostKey[65] = '\0';
+    hostKey[64] = '\0';
     if (registerRequestPacket->registrationType == e_HostRegistration)
     {
         status = loginSystem->registerHost(hostId, hostKey);
@@ -337,10 +337,8 @@ void handleRegisterRequest(const int sd, const RegisterRequestPacket *registerRe
     {
         const char *serviceId = registerRequestPacket->serviceId;
         char *password = reinterpret_cast<char *>(data + 97);
-        password[65] = '\0';
-
-        status =
-            loginSystem->registerService(hostId, serviceId, hostKey, password);
+        password[64] = '\0';
+        status = loginSystem->registerService(hostId, serviceId, hostKey, password);
     }
     else
     {
@@ -397,6 +395,9 @@ void handleLoginRequest(const int sd, const LoginRequestPacket *loginRequestPack
     const char *serviceId = loginRequestPacket->serviceId;
     const char *hostKey = reinterpret_cast<const char *>(data + 32);
     const char *password = reinterpret_cast<const char *>(data + 97);
+
+    printf("HostKey: %s\n", hostKey);
+    printf("Password: %s\n", password);
 
     if (clientKeys[connectionId].checkTag(tag))
     {
@@ -464,7 +465,32 @@ bool handleLogout(LogoutPacket *logoutPacket, const uint32_t connectionId)
         printf("{%lu} Logout packet received {%lu}\n", static_cast<unsigned long>(connectionId), (unsigned long)logoutPacket->connectionId);
     }
 
-    if (validateClient(logoutPacket->connectionId, logoutPacket->sessionKey))
+    uint8_t data[256];
+    memset(data, 0, sizeof(data));
+
+    size_t len = sizeof(data);
+
+    bool status = rsaDecrypt(data, &len, logoutPacket->data, sizeof(logoutPacket->data), keypair);
+    if (!status)
+    {
+        fprintf(stderr, "rsaDecrypt() failed\n");
+        return false;
+    }
+
+    clientKeysLock.lock();
+    status = true;
+    AesKey aesKey = clientKeys[logoutPacket->connectionId].getAesKey();
+    for (size_t i = 0; i < AES_KEY_SIZE / 8; ++i)
+    {
+        if (data[i] != aesKey.data()[i])
+        {
+            status = false;
+            break;
+        }
+    }
+    clientKeysLock.unlock();
+
+    if (status)
     {
         clientKeysLock.lock();
         if (verbose)
@@ -932,9 +958,7 @@ void *dataThread(void *)
         {
             fprintf(stderr, "accept() failed [%d]\n", errno);
         }
-        else
-        {
-        }
+
         ClientThreadArgs *args = new ClientThreadArgs;
         args->sd = sd;
         args->sourceAddress = sourceAddress;

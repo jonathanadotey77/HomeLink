@@ -25,10 +25,16 @@ int LoginSystem::validateHostCallback(void *data, int, char **argv, char **)
         saltedHash(validateHostStruct->hostKey,
                    strlen(validateHostStruct->hostKey), salt, strlen(salt));
 
-    validateHostStruct->status =
-        std::string(saltedPassword) == std::string(password)
-            ? e_HostValidationSuccess
-            : e_HostValidationFailed;
+    if (std::string(saltedPassword) == std::string(password))
+    {
+        validateHostStruct->status = e_HostValidationSuccess;
+    }
+    else
+    {
+        validateHostStruct->status = e_HostValidationFailed;
+    }
+
+    memset(saltedPassword, 0, strlen(saltedPassword));
     free(saltedPassword);
 
     return 0;
@@ -38,13 +44,13 @@ static int loginCallback(void *data, int, char **argv, char **)
 {
     LoginStruct *loginStruct = static_cast<LoginStruct *>(data);
 
-    const char *password = argv[0];
+    const char *storedPassword = argv[0];
     const char *salt = argv[1];
 
     char *saltedPassword = saltedHash(
         loginStruct->password, strlen(loginStruct->password), salt, strlen(salt));
 
-    if (std::string(saltedPassword) == std::string(password))
+    if (std::string(saltedPassword) == std::string(storedPassword))
     {
         loginStruct->status = LoginStatus::e_LoginSuccess;
     }
@@ -53,6 +59,7 @@ static int loginCallback(void *data, int, char **argv, char **)
         loginStruct->status = LoginStatus::e_LoginFailed;
     }
 
+    memset(saltedPassword, 0, strlen(saltedPassword));
     free(saltedPassword);
 
     return 0;
@@ -146,7 +153,7 @@ LoginSystem::validateHostKey(const char *hostId, const char *hostKey)
 LoginStatus LoginSystem::tryLogin(const char *hostId, const char *serviceId,
                                   const char *hostKey, const char *password)
 {
-    if (!this->validateHostKey(hostId, hostKey))
+    if (this->validateHostKey(hostId, hostKey) != e_HostValidationSuccess)
     {
         return e_LoginFailed;
     }
@@ -166,6 +173,7 @@ LoginStatus LoginSystem::tryLogin(const char *hostId, const char *serviceId,
 
     memset(sql, 0, sizeof(sql));
     memset(&loginStruct, 0, sizeof(loginStruct));
+    printf("Status: %d\n", (int)status);
 
     return status;
 }
@@ -226,7 +234,7 @@ RegisterStatus LoginSystem::registerService(const char *hostId,
     }
 
     uint8_t salt[16] = {0};
-    randomBytes(salt, 16);
+    randomBytes(salt, sizeof(salt));
     char saltStr[sizeof(salt) * 2 + 1];
     getByteStr(saltStr, salt, sizeof(salt));
     saltStr[sizeof(saltStr) - 1] = '\0';

@@ -160,7 +160,7 @@ extern "C"
     {
         uint8_t packetType;
         uint32_t connectionId;
-        uint8_t sessionKey[80];
+        uint8_t data[256];
     } LogoutPacket;
     extern const char *LogoutPacket_STR;
     extern const int32_t LogoutPacket_SIZE;

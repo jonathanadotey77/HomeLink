@@ -272,28 +272,28 @@ void RegisterResponsePacket_deserialize(RegisterResponsePacket *packet, const ui
 }
 
 const char *LogoutPacket_STR = "Logout";
-const int32_t LogoutPacket_SIZE = sizeof(((LogoutPacket){0}).packetType) + sizeof(((LogoutPacket){0}).connectionId) + sizeof(((LogoutPacket){0}).sessionKey);
+const int32_t LogoutPacket_SIZE = sizeof(((LogoutPacket){0}).packetType) + sizeof(((LogoutPacket){0}).connectionId) + sizeof(((LogoutPacket){0}).data);
 
 void LogoutPacket_serialize(uint8_t *buffer, const LogoutPacket *packet)
 {
     uint8_t *packetType = (uint8_t *)(buffer);
     uint32_t *connectionId = (uint32_t *)(buffer + sizeof(packet->packetType));
-    uint8_t *sessionKey = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
+    uint8_t *data = (uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
 
     *packetType = packet->packetType;
     *connectionId = htonl(packet->connectionId);
-    memcpy(sessionKey, packet->sessionKey, sizeof(packet->sessionKey));
+    memcpy(data, packet->data, sizeof(packet->data));
 }
 
 void LogoutPacket_deserialize(LogoutPacket *packet, const uint8_t *buffer)
 {
     const uint8_t *packetType = (const uint8_t *)(buffer);
     const uint32_t *connectionId = (const uint32_t *)(buffer + sizeof(packet->packetType));
-    const uint8_t *sessionKey = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
+    const uint8_t *data = (const uint8_t *)(buffer + sizeof(packet->packetType) + sizeof(packet->connectionId));
 
     packet->packetType = *packetType;
     packet->connectionId = ntohl(*connectionId);
-    memcpy(packet->sessionKey, sessionKey, sizeof(packet->sessionKey));
+    memcpy(packet->data, data, sizeof(packet->data));
 }
 
 const char *AsyncListenRequestPacket_STR = "AsyncListen";
